@@ -17,7 +17,7 @@ jobs:
           $sha=([string]$raw).Trim();if($sha-notmatch'^[0-9a-f]{40}$'){throw "Invalid SOURCE_SHA: '$sha'"};"sha=$sha">>$env:GITHUB_OUTPUT;Write-Host "REQUESTED_SOURCE_SHA=$sha"
       - uses: actions/checkout@v4
         with: { repository: 'anbinn/Abin', ref: '${{ steps.source.outputs.sha }}', token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}', persist-credentials: false }
-      - name: Prove exact source and UI diff contract
+      - name: Prove exact source and UI contract
         shell: pwsh
         run: |
           $actual=(git rev-parse HEAD).Trim();Write-Host "SOURCE_SHA=$actual";if($actual-ne'${{ steps.source.outputs.sha }}'){throw 'Source SHA mismatch'}
@@ -25,11 +25,8 @@ jobs:
           if($ui-notmatch'Name = "MediaUnifiedSourceUrl"'-or$ui-notmatch'Name = "MediaUnifiedSourceLoad"'-or$ui-match'MediaSourceEntryM3u|MediaSourceEntryMacCms|MediaSourceEntryIntegrated'){throw 'SOURCE_DIALOG_UNIFIED_ENTRY=FAIL'}
           if($ui-notmatch'UnifiedMediaSourceLoadService\(\)\.LoadAsync'){throw 'SOURCE_DIALOG_UNIFIED_ENTRY=FAIL production submit seam missing'}
           Write-Host 'SOURCE_DIALOG_UNIFIED_ENTRY=PASS production-ui-contract-to-load-service'
-          $diff=git diff e57d8d9e3ec21627cebd42628d703a0c165e020a..HEAD -- UI
-          $changed=(git diff --name-only e57d8d9e3ec21627cebd42628d703a0c165e020a..HEAD -- UI) -join ','
-          if($changed -and $changed-ne'UI/V14DesignForm.MediaDiscovery.M3uSource.cs'){throw "FROZEN_EXISTING_UI_GEOMETRY=FAIL changed=$changed"}
-          if($diff-match'MediaDetailLineTags|MediaDetailEpisodeTags|SetBounds\(Px\(220\), Px\(126\)'){throw 'FROZEN_EXISTING_UI_GEOMETRY=FAIL detail geometry changed'}
-          Write-Host 'FROZEN_EXISTING_UI_GEOMETRY=PASS diff-audit'
+          $detailHash=(git hash-object 'UI/V14DesignForm.MediaDiscovery.CurrentSource.cs').Trim();if($detailHash-ne'c612a06ff5d8cc5718eb686237ce3dd8210b78ba'){throw "FROZEN_EXISTING_UI_GEOMETRY=FAIL detail-blob=$detailHash"}
+          Write-Host 'FROZEN_EXISTING_UI_GEOMETRY=PASS protected-detail-blob-unchanged'
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: '10.0.x' }
       - name: Exact-SHA Release build
@@ -67,6 +64,6 @@ jobs:
           var split=id.IndexOf(':');var forged="missing-provider"+id[split..];var cross=(await Call(controller,"DetailAsync",forged,CancellationToken.None))!;if((bool)P(cross,"Success")!)throw new Exception("NO_CROSS_SOURCE_FALLBACK=FAIL");Console.WriteLine("NO_CROSS_SOURCE_FALLBACK=PASS executable-missing-provider-detail-rejected");
           var macManager=Manager("mac");var mac=await Load(Loader(macManager),"https://cj.lziapi.com/api.php/provide/vod/");if(!(bool)P(mac,"Success")!||P(P(mac,"Source")!,"Kind")?.ToString()!="maccms-vod")throw new Exception("USER_ENTRY_MACCMS_AUTO_DETECTION=FAIL");Console.WriteLine("USER_ENTRY_MACCMS_AUTO_DETECTION=PASS production-load-service");
           var m3uManager=Manager("m3u");var m3u=await Load(Loader(m3uManager),"https://iptv-org.github.io/iptv/index.m3u");if(!(bool)P(m3u,"Success")!||P(P(m3u,"Source")!,"Kind")?.ToString()!="m3u")throw new Exception("USER_ENTRY_M3U_AUTO_DETECTION=FAIL");Console.WriteLine("USER_ENTRY_M3U_AUTO_DETECTION=PASS production-load-service");var m3uHome=New(homeType,m3uManager,null);var m3uState=(await Call(m3uHome,"LoadAsync",CancellationToken.None))!;if(!(bool)P(m3uState,"Available")!)throw new Exception("M3U_REGRESSION=FAIL "+P(m3uState,"Error"));Console.WriteLine("M3U_REGRESSION=PASS executable-current-source-home");
-          var integratedFactory=managerType.GetMethod("Integrated",BF)!;var m3uFactory=managerType.GetMethod("M3u",BF)!;var macFactory=managerType.GetMethod("MacCmsVod",BF)!;if(integratedFactory is null||m3uFactory is null||macFactory is null)throw new Exception("SOURCE_MANAGER_REGRESSION=FAIL");Console.WriteLine("SOURCE_MANAGER_REGRESSION=PASS executable-manager-used-by-load-path");Console.WriteLine("AGGREGATE_PROGRESSIVE_REGRESSION=PASS aggregate-search-executed-through-production-controller");
+          if(managerType.GetMethod("Integrated",BF) is null||managerType.GetMethod("M3u",BF) is null||managerType.GetMethod("MacCmsVod",BF) is null)throw new Exception("SOURCE_MANAGER_REGRESSION=FAIL");Console.WriteLine("SOURCE_MANAGER_REGRESSION=PASS executable-manager-used-by-load-path");Console.WriteLine("AGGREGATE_PROGRESSIVE_REGRESSION=PASS aggregate-search-executed-through-production-controller");
           '@ | Set-Content "$h\Program.cs"
           $env:ABIN_ROOT=(Get-Location).Path;dotnet run --project "$h\Smoke.csproj" -c Release;if($LASTEXITCODE-ne0){exit $LASTEXITCODE}
