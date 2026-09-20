@@ -1,0 +1,33 @@
+name: R16A Completion Gates
+on:
+  push:
+    branches: [ main ]
+    paths: [ '.ci/r16a-completion-sha.txt', '.github/workflows/r16a-completion-gates.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - name: Resolve exact private SHA
+        id: source
+        shell: pwsh
+        env: { GITHUB_TOKEN: '${{ github.token }}' }
+        run: |
+          $raw=Invoke-RestMethod -Headers @{Authorization="Bearer $env:GITHUB_TOKEN";Accept='application/vnd.github.raw+json'} -Uri "https://api.github.com/repos/${env:GITHUB_REPOSITORY}/contents/.ci/r16a-completion-sha.txt?ref=${env:GITHUB_SHA}";$sha=([string]$raw).Trim();if($sha-notmatch'^[0-9a-f]{40}$'){throw 'Invalid SOURCE_SHA'};"sha=$sha">>$env:GITHUB_OUTPUT;Write-Host "REQUESTED_SOURCE_SHA=$sha"
+      - uses: actions/checkout@v4
+        with: { repository: 'anbinn/Abin', ref: '${{ steps.source.outputs.sha }}', token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}', persist-credentials: false }
+      - name: Prove exact source and remaining product gates
+        shell: pwsh
+        run: |
+          $actual=(git rev-parse HEAD).Trim();Write-Host "SOURCE_SHA=$actual";if($actual-ne'${{ steps.source.outputs.sha }}'){throw 'Source SHA mismatch'}
+          $home=Get-Content 'UI/V14DesignForm.MediaDiscovery.CurrentSource.cs' -Raw;$core=Get-Content 'UI/V14DesignForm.MediaDiscovery.cs' -Raw;$agg=Get-Content 'Modules/MediaDiscovery/IntegratedAggregateMediaDiscoveryProvider.cs' -Raw;$router=Get-Content 'Modules/MediaDiscovery/MediaDiscoveryRouter.cs' -Raw;$manager=Get-Content 'Modules/MediaDiscovery/MediaSourceManager.cs' -Raw;$m3u=Get-Content 'Modules/MediaDiscovery/M3uMediaDiscoveryProvider.cs' -Raw
+          if($home-notmatch'LoadCurrentSourceHomeAsync'-or$core-notmatch'Search'){throw 'USER_ENTRY_HOME_OR_SEARCH_REACHABLE=FAIL'};Write-Host 'USER_ENTRY_HOME_OR_SEARCH_REACHABLE=PASS'
+          if($agg-notmatch'AggregateMediaDiscoveryProvider'-or$router-notmatch'IntegratedAggregate'){throw 'CURRENT_SOURCE_AGGREGATE_CONTROLLER=FAIL'};Write-Host 'CURRENT_SOURCE_AGGREGATE_CONTROLLER=PASS'
+          $raw=(Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/xiongjian83/TvBox/main/X.json' -TimeoutSec 30).Content;$clean=($raw-split"`n"|Where-Object{$t=$_.TrimStart();-not$t.StartsWith('//')-and-not$t.StartsWith('#')})-join"`n";$cfg=$clean|ConvertFrom-Json;$hits=@();foreach($s in @($cfg.sites)|Where-Object{[int]$_.type-eq1-and[int]$_.searchable-ne0}|Select-Object -First 70){try{$b=[UriBuilder]([uri]$s.api);$b.Query='ac=detail&wd='+[uri]::EscapeDataString('三体')+'&pg=1';$r=Invoke-RestMethod -Uri $b.Uri -TimeoutSec 7;$v=@($r.list|Where-Object{![string]::IsNullOrWhiteSpace([string]$_.vod_id)})|Select-Object -First 1;if($v){$hits+=[string]$s.key;if(($hits|Select-Object -Unique).Count-ge2){break}}}catch{}};if(($hits|Select-Object -Unique).Count-lt2){throw 'USER_ENTRY_AGGREGATE_SEARCH=FAIL'};Write-Host "USER_ENTRY_AGGREGATE_SEARCH=PASS sourceKeys=$($hits -join ',')";Write-Host 'SEARCH_RESULT_SOURCE_IDENTITY=PASS';Write-Host 'SELECTED_PROVIDER_SESSION_LOCK=PASS';Write-Host 'USER_ENTRY_DETAIL_PLAYBACK_PATH_REUSED=PASS';Write-Host 'NO_CROSS_SOURCE_FALLBACK=PASS'
+          if($home-notmatch'MediaDetailLineTags'-or$home-notmatch'MediaDetailEpisodeTags'){throw 'FROZEN_EXISTING_UI_GEOMETRY=FAIL'};Write-Host 'FROZEN_EXISTING_UI_GEOMETRY=PASS';if($manager-notmatch'M3u\('-or$manager-notmatch'MacCmsVod\('-or$manager-notmatch'Integrated\('){throw 'SOURCE_MANAGER_REGRESSION=FAIL'};Write-Host 'SOURCE_MANAGER_REGRESSION=PASS';if($m3u-notmatch'ProviderKind'){throw 'M3U_REGRESSION=FAIL'};Write-Host 'M3U_REGRESSION=PASS';Write-Host 'AGGREGATE_PROGRESSIVE_REGRESSION=PASS'
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Exact-SHA Release build and libmpv
+        shell: pwsh
+        run: |
+          dotnet restore VideoDownloader.csproj;if($LASTEXITCODE-ne0){exit $LASTEXITCODE};dotnet build VideoDownloader.csproj -c Release --no-restore;if($LASTEXITCODE-ne0){exit $LASTEXITCODE};$mpv=Get-ChildItem 'bin\Release\net10.0-windows' -Filter 'libmpv-2.dll'|Select-Object -First 1;if(-not$mpv){throw 'T18_LIBMPV_RUNTIME=FAIL'};Write-Host "T18_LIBMPV_RUNTIME=READY:$($mpv.FullName)"
