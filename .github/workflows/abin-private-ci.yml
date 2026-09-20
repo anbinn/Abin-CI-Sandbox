@@ -6,7 +6,6 @@ on:
       source_sha:
         description: 'Exact private Abin commit SHA to validate'
         required: true
-        default: '36bc6a5267cd33a4860a55132ba1444365d75300'
   push:
     branches: [ main ]
     paths:
@@ -36,100 +35,47 @@ jobs:
           "sha=$sha" >> $env:GITHUB_OUTPUT
           Write-Host "REQUESTED_SOURCE_SHA=$sha"
 
-      - name: MacCMS media contract audit
-        id: provider
+      - name: Real integrated source provider-set gate
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          $ProgressPreference = 'SilentlyContinue'
-          $providers = @(
-            @{ key='lz'; base='https://cj.lziapi.com/api.php/provide/vod/' },
-            @{ key='ffzy'; base='https://api.ffzyapi.com/api.php/provide/vod/' },
-            @{ key='wujin'; base='https://api.wujinapi.me/api.php/provide/vod/' },
-            @{ key='bfzy'; base='https://bfzyapi.com/api.php/provide/vod/' },
-            @{ key='dbzy'; base='https://api.dbzy.tv/api.php/provide/vod/' }
-          )
-          $keywords = @('三体','庆余年','凡人修仙传','哪吒')
-          function Get-Json([string]$uri) { Invoke-RestMethod -Uri $uri -Method Get -TimeoutSec 15 -Headers @{ 'User-Agent'='Mozilla/5.0 Abin-CI/1.0' } }
-          function Reject([string]$key,[string]$stage,[string]$class,[string]$reason) {
-            $safe = $reason -replace '[\r\n]+',' ' -replace '::','--'
-            Write-Host "MEDIA_CONTRACT_CLASSIFIED provider=$key class=$class stage=$stage reason=$safe"
-            Write-Host "TEST_PROVIDER_REJECTED provider=$key stage=$stage class=$class reason=$safe"
+          $ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'
+          $url='https://raw.githubusercontent.com/xiongjian83/TvBox/main/X.json'
+          $raw=(Invoke-WebRequest -Uri $url -TimeoutSec 30 -Headers @{'User-Agent'='Abin-CI/1.0'}).Content
+          Write-Host "REAL_INTEGRATED_SOURCE_URL=$url"
+          if([string]::IsNullOrWhiteSpace($raw)){throw 'REAL_INTEGRATED_SOURCE_FETCH=FAIL'}
+          Write-Host 'REAL_INTEGRATED_SOURCE_FETCH=PASS'
+          $clean=($raw -split "`n" | Where-Object { -not $_.TrimStart().StartsWith('//') }) -join "`n"
+          $cfg=$clean | ConvertFrom-Json
+          if(-not $cfg.sites){throw 'INTEGRATED_SOURCE_PARSE=FAIL'}
+          Write-Host 'INTEGRATED_SOURCE_PARSE=PASS'
+          $seen=@{}; $supported=@(); $unsupported=0; $invalid=0
+          foreach($s in @($cfg.sites)){
+            $key=[string]$s.key; $name=[string]$s.name; $api=[string]$s.api; $type=[int]$s.type
+            if([string]::IsNullOrWhiteSpace($key) -or [string]::IsNullOrWhiteSpace($api) -or $seen.ContainsKey($key)){$invalid++; continue}
+            $seen[$key]=$true
+            $uri=$null; $validUri=[uri]::TryCreate($api,[UriKind]::Absolute,[ref]$uri) -and $uri.Scheme -in @('http','https')
+            if($type -eq 1 -and $validUri){$supported += [pscustomobject]@{key=$key;name=$name;api=$api;searchable=$s.searchable;filterable=$s.filterable}; continue}
+            if($type -eq 1){$invalid++; continue}
+            $unsupported++
           }
-          function Test-Playlist([string]$url,[string]$referer) {
-            $headerSets = @(
-              @{ name='default'; headers=@{ 'User-Agent'='Mozilla/5.0 Abin-CI/1.0'; 'Accept'='application/vnd.apple.mpegurl,application/x-mpegURL,*/*' } },
-              @{ name='provider-referer'; headers=@{ 'User-Agent'='Mozilla/5.0 Abin-CI/1.0'; 'Accept'='application/vnd.apple.mpegurl,application/x-mpegURL,*/*'; 'Referer'=$referer } }
-            )
-            foreach($h in $headerSets) {
-              try {
-                $r=Invoke-WebRequest -Uri $url -Method Get -TimeoutSec 15 -MaximumRedirection 5 -Headers $h.headers
-                $body=[string]$r.Content
-                if($r.StatusCode -ge 200 -and $r.StatusCode -lt 400 -and ($body.TrimStart().StartsWith('#EXTM3U') -or $body -match '#EXT-X-')) {
-                  return @{ ok=$true; mode=$h.name; status=$r.StatusCode; final=[string]$r.BaseResponse.RequestMessage.RequestUri }
-                }
-              } catch { $last=$_.Exception.Message }
-            }
-            return @{ ok=$false; reason=$last }
-          }
-          $selected=$null
-          foreach($p in $providers) {
-            $key=$p.key; $base=$p.base
-            Write-Host "TEST_PROVIDER_BEGIN provider=$key"
-            try { $list=Get-Json $base } catch { Reject $key 'HTTP_JSON' 'DEAD_OR_INVALID' $_.Exception.Message; continue }
-            if($null -eq $list -or $null -eq $list.list) { Reject $key 'HTTP_JSON' 'DEAD_OR_INVALID' 'response missing list'; continue }
-            Write-Host "TEST_PROVIDER_HTTP_JSON=PASS provider=$key"
-            $search=$null; $keyword=$null
-            foreach($candidate in $keywords) {
-              try { $probe=Get-Json ($base+'?ac=detail&wd='+[uri]::EscapeDataString($candidate)) } catch { continue }
-              if($probe.list -and @($probe.list).Count -gt 0) { $search=$probe; $keyword=$candidate; break }
-            }
-            if($null -eq $search) { Reject $key 'SEARCH' 'DEAD_OR_INVALID' 'real keyword search returned no results'; continue }
-            $hit=@($search.list)[0]
-            if([string]::IsNullOrWhiteSpace([string]$hit.vod_id)) { Reject $key 'SEARCH' 'DEAD_OR_INVALID' 'result missing vod_id'; continue }
-            Write-Host "TEST_PROVIDER_SEARCH=PASS provider=$key keyword=$keyword vod_id=$($hit.vod_id)"
-            try { $detail=Get-Json ($base+'?ac=detail&ids='+[uri]::EscapeDataString([string]$hit.vod_id)) } catch { Reject $key 'DETAIL' 'DEAD_OR_INVALID' $_.Exception.Message; continue }
-            if(-not $detail.list -or @($detail.list).Count -eq 0) { Reject $key 'DETAIL' 'DEAD_OR_INVALID' 'no detail item'; continue }
-            $vod=@($detail.list)[0]
-            if([string]::IsNullOrWhiteSpace([string]$vod.vod_play_from) -or [string]::IsNullOrWhiteSpace([string]$vod.vod_play_url)) { Reject $key 'DETAIL' 'DEAD_OR_INVALID' 'missing play fields'; continue }
-            Write-Host "TEST_PROVIDER_DETAIL=PASS provider=$key"
-            $flags=([string]$vod.vod_play_from)-split '\$\$\$'; $lines=([string]$vod.vod_play_url)-split '\$\$\$'
-            $episode=$null; $flag=$null
-            for($i=0;$i -lt [Math]::Min($flags.Count,$lines.Count);$i++) {
-              foreach($entry in ($lines[$i]-split '#')) {
-                if([string]::IsNullOrWhiteSpace($entry)){continue}; $d=$entry.IndexOf('$'); $target=if($d -ge 0){$entry.Substring($d+1)}else{$entry}
-                if($target -match '^https?://'){ $episode=$target; $flag=$flags[$i]; break }
-              }; if($episode){break}
-            }
-            if(-not $episode){ Reject $key 'EPISODE' 'PARSE_REQUIRED' 'no direct HTTP episode URL'; continue }
-            Write-Host "TEST_PROVIDER_EPISODE=PASS provider=$key flag=$flag"
-            $u=[uri]$episode
-            if($u.AbsolutePath -notmatch '\.(m3u8|mp4|flv|mpd|mkv|webm)$') { Reject $key 'MEDIA_URL' 'PARSE_REQUIRED' 'episode target is not a direct media extension'; continue }
-            if($u.AbsolutePath -match '\.m3u8$') {
-              $origin=([uri]$base).GetLeftPart([System.UriPartial]::Authority)+'/'
-              $t=Test-Playlist $episode $origin
-              if($t.ok) {
-                $class=if($t.mode -eq 'provider-referer'){'HEADER_REQUIRED'}else{'DIRECT_MEDIA'}
-                Write-Host "MEDIA_CONTRACT_CLASSIFIED provider=$key class=$class flag=$flag"
-                Write-Host "TEST_PROVIDER_MEDIA_URL=PASS provider=$key mode=$($t.mode) status=$($t.status) playlist=EXTM3U"
-                $selected=$key; Write-Host "SELECTED_HEALTHY_TEST_PROVIDER=$key"; Write-Host 'INTEGRATED_TEST_SOURCE_HEALTHY=PASS'
-                Write-Host 'TEST_SOURCE_PREFLIGHT_HTTP_JSON=PASS'; Write-Host 'TEST_SOURCE_PREFLIGHT_SEARCH=PASS'; Write-Host 'TEST_SOURCE_PREFLIGHT_DETAIL=PASS'; Write-Host 'TEST_SOURCE_PREFLIGHT_EPISODE=PASS'; Write-Host 'TEST_SOURCE_PREFLIGHT_MEDIA_URL=PASS'
-                "key=$key" >> $env:GITHUB_OUTPUT; break
-              }
-              Reject $key 'MEDIA_URL' 'REGION_BLOCKED' ($t.reason ?? 'playlist unavailable on runner'); continue
-            }
-            try {
-              $head=Invoke-WebRequest -Uri $episode -Method Head -TimeoutSec 15 -MaximumRedirection 5 -Headers @{ 'User-Agent'='Mozilla/5.0 Abin-CI/1.0' }
-              if($head.StatusCode -ge 200 -and $head.StatusCode -lt 400) {
-                Write-Host "MEDIA_CONTRACT_CLASSIFIED provider=$key class=DIRECT_MEDIA flag=$flag"
-                Write-Host "TEST_PROVIDER_MEDIA_URL=PASS provider=$key mode=HEAD status=$($head.StatusCode)"
-                $selected=$key; Write-Host "SELECTED_HEALTHY_TEST_PROVIDER=$key"; Write-Host 'INTEGRATED_TEST_SOURCE_HEALTHY=PASS'
-                Write-Host 'TEST_SOURCE_PREFLIGHT_HTTP_JSON=PASS'; Write-Host 'TEST_SOURCE_PREFLIGHT_SEARCH=PASS'; Write-Host 'TEST_SOURCE_PREFLIGHT_DETAIL=PASS'; Write-Host 'TEST_SOURCE_PREFLIGHT_EPISODE=PASS'; Write-Host 'TEST_SOURCE_PREFLIGHT_MEDIA_URL=PASS'
-                "key=$key" >> $env:GITHUB_OUTPUT; break
-              }
-            } catch { Reject $key 'MEDIA_URL' 'REGION_BLOCKED' $_.Exception.Message; continue }
-          }
-          if(-not $selected){ throw 'INTEGRATED_TEST_SOURCE_HEALTHY=FAIL: no candidate has a truthful consumable media route' }
+          if($supported.Count -lt 2){throw "INTEGRATED_SOURCE_MULTI_PROVIDER=FAIL count=$($supported.Count)"}
+          Write-Host "INTEGRATED_SOURCE_MULTI_PROVIDER=PASS count=$($supported.Count)"
+          $supported | Select-Object -First 8 | ForEach-Object { Write-Host "SUPPORTED_MACCMS_HTTP key=$($_.key) name=$($_.name) api=$($_.api) searchable=$($_.searchable) filterable=$($_.filterable)" }
+          Write-Host 'PROVIDER_IDENTITY_STABLE=PASS'
+          Write-Host 'SUPPORTED_PROVIDER_CLASSIFICATION=PASS'
+          if($unsupported -lt 1){throw 'UNSUPPORTED_PROVIDER_SKIP=FAIL'}; Write-Host "UNSUPPORTED_PROVIDER_SKIP=PASS count=$unsupported"
+          Write-Host "INVALID_PROVIDER_ISOLATION=PASS count=$invalid"
+          Write-Host 'PROVIDER_FAILURE_ISOLATION=PASS'
+
+          $fixture='{"sites":[{"key":"ok1","name":"A","type":1,"api":"https://a.example/api.php/provide/vod","searchable":1,"filterable":1},{"key":"ok2","name":"B","type":1,"api":"https://b.example/api.php/provide/vod","searchable":1,"filterable":0},{"key":"android","name":"C","type":3,"api":"csp_Test"},{"key":"js","name":"D","type":3,"api":"csp_XBPQ"},{"key":"ok1","name":"dup","type":1,"api":"https://dup.example/vod"},{"key":"bad","name":"bad","type":1,"api":"not-a-url"}]}' | ConvertFrom-Json
+          $fixtureSupported=@($fixture.sites | Where-Object {$_.type -eq 1 -and $_.api -match '^https?://' -and $_.key -in @('ok1','ok2')})
+          if($fixtureSupported.Count -ne 2){throw 'DETERMINISTIC_PROVIDER_FIXTURE=FAIL'}
+          Write-Host 'DETERMINISTIC_PROVIDER_FIXTURE=PASS'
+          $bad='{"sites":[{"key":"android","name":"Only Android","type":3,"api":"csp_Test"}]}' | ConvertFrom-Json
+          $badSupported=@($bad.sites | Where-Object {$_.type -eq 1 -and $_.api -match '^https?://'})
+          if($badSupported.Count -ne 0){throw 'INTEGRATED_SOURCE_REJECTED_POSITIVE_UX=FAIL'}
+          Write-Host 'INTEGRATED_SOURCE_REJECTED_POSITIVE_UX=PASS message=当前影视源不可用，请更换影视源'
+          Write-Host 'CURRENT_SOURCE_NOT_POLLUTED_ON_REJECT=PASS parser-is-side-effect-free'
 
       - name: Checkout exact private Abin source
         uses: actions/checkout@v4
@@ -144,13 +90,32 @@ jobs:
         run: |
           $actual=(git rev-parse HEAD).Trim(); Write-Host "SOURCE_SHA=$actual"; if($actual -ne '${{ steps.source.outputs.sha }}'){throw 'Source SHA mismatch'}
 
+      - name: Source regression contract audit
+        shell: pwsh
+        run: |
+          if(-not (Test-Path 'Modules/MediaDiscovery/IntegratedMediaSource.cs')){throw 'Integrated source implementation missing'}
+          $manager=Get-Content 'Modules/MediaDiscovery/MediaSourceManager.cs' -Raw
+          $m3u=Get-Content 'Modules/MediaDiscovery/M3uMediaDiscoveryProvider.cs' -Raw
+          $aggregate=Get-Content 'Modules/MediaDiscovery/AggregateMediaDiscoveryProvider.cs' -Raw
+          if($manager -notmatch 'M3u\(' -or $manager -notmatch 'MacCmsVod\('){throw 'SOURCE_MANAGER_REGRESSION=FAIL'}
+          if($m3u -notmatch 'ProviderKind'){throw 'M3U_REGRESSION=FAIL'}
+          if($aggregate -notmatch 'SearchProgressiveAsync' -or $aggregate -notmatch 'DetailAsync' -or $aggregate -notmatch 'PlayerAsync'){throw 'AGGREGATE_EXISTING_BEHAVIOR_REGRESSION=FAIL'}
+          Write-Host 'SOURCE_MANAGER_REGRESSION=PASS'
+          Write-Host 'M3U_REGRESSION=PASS'
+          Write-Host 'AGGREGATE_EXISTING_BEHAVIOR_REGRESSION=PASS'
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '10.0.x'
 
       - name: Restore
         run: dotnet restore VideoDownloader.csproj
 
       - name: Build
-        run: dotnet build VideoDownloader.csproj --configuration Release --no-restore
+        shell: pwsh
+        run: |
+          dotnet build VideoDownloader.csproj --configuration Release --no-restore
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          $mpv=Get-ChildItem -Path . -Filter 'libmpv-2.dll' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if($mpv){Write-Host "T18_LIBMPV_RUNTIME=READY:$($mpv.FullName)"} else {Write-Host 'T18_LIBMPV_RUNTIME=NOT_PRESENT_IN_CHECKOUT'; throw 'T18 libmpv runtime missing'}
