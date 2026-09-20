@@ -1,0 +1,42 @@
+name: Abin Private CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'Exact private Abin commit SHA to validate'
+        required: true
+        default: '36bc6a5267cd33a4860a55132ba1444365d75300'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout exact private Abin source
+        uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: ${{ inputs.source_sha }}
+          token: ${{ secrets.ABIN_PRIVATE_READ_TOKEN }}
+          persist-credentials: false
+
+      - name: Prove exact source SHA
+        shell: pwsh
+        run: |
+          $actual = (git rev-parse HEAD).Trim()
+          Write-Host "SOURCE_SHA=$actual"
+          if ($actual -ne '${{ inputs.source_sha }}') { throw "Source SHA mismatch" }
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore VideoDownloader.csproj
+
+      - name: Build
+        run: dotnet build VideoDownloader.csproj --configuration Release --no-restore
