@@ -41,38 +41,38 @@ jobs:
               {
                 Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
                 ThreadExceptionEventHandler th=(_,e)=>{observed=e.Exception;lines.Add("THREAD_EXCEPTION="+e.Exception);done.Set();Application.ExitThread();};Application.ThreadException+=th;
-                var form=new V14DesignForm();
-                form.Shown+=async(_,_)=>
+                try
                 {
-                  try
+                  var form=new V14DesignForm();
+                  form.Shown+=async(_,_)=>
                   {
-                    if(!MediaDiscoveryUiController.TryCreateIntegrated("https://raw.githubusercontent.com/xiongjian83/TvBox/main/X.json",out var c,out var err)||c is null)throw new Exception(err??"controller create failed");
-                    await c.InitializeAsync();form._mediaController=c;form._mediaRuntimeReady=true;form.WireMediaControllerEvents();
-                    form._mediaKeyword.Text="三体";
-                    var onKey=typeof(Control).GetMethod("OnKeyDown",BindingFlags.Instance|BindingFlags.NonPublic)!;
-                    lines.Add("ENTER_DISPATCH=production V14TextBox KeyDown -> RunRealMediaSearchAsync");
-                    onKey.Invoke(form._mediaKeyword,new object[]{new KeyEventArgs(Keys.Enter)});
-                    await Task.Delay(80);
-                    lines.Add($"POST_ENTER page={form._mediaCurrentPage.Kind} handle={form.IsHandleCreated} disposed={form.IsDisposed}");
-                    form.Dispose();lines.Add("LIFECYCLE_BOUNDARY=form disposed after production Enter while progressive search outstanding");
-                    await Task.Delay(12000);
-                    GC.Collect();GC.WaitForPendingFinalizers();GC.Collect();await Task.Delay(500);
-                    lock(unobserved)foreach(var x in unobserved)lines.Add("UNOBSERVED_TASK_EXCEPTION="+x);
-                    done.Set();Application.ExitThread();
-                  }catch(Exception ex){observed=ex;lines.Add("HARNESS_EXCEPTION="+ex);done.Set();Application.ExitThread();}
-                };
-                Application.Run(form);Application.ThreadException-=th;
+                    try
+                    {
+                      if(!MediaDiscoveryUiController.TryCreateIntegrated("https://raw.githubusercontent.com/xiongjian83/TvBox/main/X.json",out var c,out var err)||c is null)throw new Exception(err??"controller create failed");
+                      await c.InitializeAsync();form._mediaController=c;form._mediaRuntimeReady=true;form.WireMediaControllerEvents();
+                      form._mediaKeyword.Text="三体";
+                      var onKey=typeof(Control).GetMethod("OnKeyDown",BindingFlags.Instance|BindingFlags.NonPublic)!;
+                      lines.Add("ENTER_DISPATCH=production V14TextBox KeyDown -> RunRealMediaSearchAsync");
+                      onKey.Invoke(form._mediaKeyword,new object[]{new KeyEventArgs(Keys.Enter)});
+                      await Task.Delay(80);
+                      lines.Add($"POST_ENTER page={form._mediaCurrentPage.Kind} handle={form.IsHandleCreated} disposed={form.IsDisposed}");
+                      form.Dispose();lines.Add("LIFECYCLE_BOUNDARY=form disposed after production Enter while progressive search outstanding");
+                      await Task.Delay(12000);GC.Collect();GC.WaitForPendingFinalizers();GC.Collect();await Task.Delay(500);
+                      lock(unobserved)foreach(var x in unobserved)lines.Add("UNOBSERVED_TASK_EXCEPTION="+x);
+                      done.Set();Application.ExitThread();
+                    }catch(Exception ex){observed=ex;lines.Add("HARNESS_EXCEPTION="+ex);done.Set();Application.ExitThread();}
+                  };
+                  Application.Run(form);
+                }catch(Exception ex){observed=ex;lines.Add("THREAD_SETUP_EXCEPTION="+ex);done.Set();}
+                finally{Application.ThreadException-=th;}
               });thread.SetApartmentState(ApartmentState.STA);thread.Start();
-              if(!done.Wait(TimeSpan.FromSeconds(30))){lines.Add("PROBE_TIMEOUT");}
-              thread.Join(3000);TaskScheduler.UnobservedTaskException-=uh;
-              lines.Add("OBSERVED_EXCEPTION="+(observed?.GetType().FullName??"none"));
-              return string.Join(Environment.NewLine,lines);
+              if(!done.Wait(TimeSpan.FromSeconds(30)))lines.Add("PROBE_TIMEOUT");
+              thread.Join(3000);TaskScheduler.UnobservedTaskException-=uh;lines.Add("OBSERVED_EXCEPTION="+(observed?.GetType().FullName??"none"));return string.Join(Environment.NewLine,lines);
             }
           }
           '@ | Set-Content 'UI/V14DesignForm.R17GCiProbe.cs' -Encoding utf8
           dotnet restore VideoDownloader.csproj; if($LASTEXITCODE-ne0){exit $LASTEXITCODE}
           dotnet build VideoDownloader.csproj -c Release --no-restore; if($LASTEXITCODE-ne0){exit $LASTEXITCODE}
-          $out=(Resolve-Path 'bin\Release\net10.0-windows').Path
+          $out=(Resolve-Path 'bin\Release\net10.0-windows').Path;[AppContext]::SetData('APP_CONTEXT_BASE_DIRECTORY',$out+'\')
           $asm=[Reflection.Assembly]::LoadFrom((Join-Path $out '阿斌视频下载器.dll'));$t=$asm.GetType('VideoDownloader.UI.V14DesignForm',$true);$m=$t.GetMethod('R17GRunProductionEnterProbe',[Reflection.BindingFlags]'Static,NonPublic');$result=$m.Invoke($null,@());Write-Host $result
-          $mpv=Get-ChildItem $out -Filter 'libmpv-2.dll'|Select-Object -First 1;if(-not$mpv){throw 'T18_LIBMPV_RUNTIME=FAIL'};Write-Host "T18_LIBMPV_RUNTIME=READY:$($mpv.FullName)"
-          Write-Host 'R17G_PRODUCTION_ENTER_PROBE=EXECUTED'
+          $mpv=Get-ChildItem $out -Filter 'libmpv-2.dll'|Select-Object -First 1;if(-not$mpv){throw 'T18_LIBMPV_RUNTIME=FAIL'};Write-Host "T18_LIBMPV_RUNTIME=READY:$($mpv.FullName)";Write-Host 'R17G_PRODUCTION_ENTER_PROBE=EXECUTED'
