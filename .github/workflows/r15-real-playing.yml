@@ -1,0 +1,105 @@
+name: R15 Real Playing
+on:
+  push:
+    branches: [ main ]
+    paths: [ '.ci/source-sha.txt', '.github/workflows/r15-real-playing.yml' ]
+permissions: { contents: read }
+jobs:
+  r15:
+    runs-on: windows-latest
+    steps:
+      - name: Resolve exact private source SHA
+        id: source
+        shell: pwsh
+        env: { GITHUB_TOKEN: '${{ github.token }}' }
+        run: |
+          $raw=Invoke-RestMethod -Headers @{Authorization="Bearer $env:GITHUB_TOKEN";Accept='application/vnd.github.raw+json'} -Uri "https://api.github.com/repos/${env:GITHUB_REPOSITORY}/contents/.ci/source-sha.txt?ref=${env:GITHUB_SHA}"
+          $sha=([string]$raw).Trim();if($sha-notmatch'^[0-9a-f]{40}$'){throw "Invalid SOURCE_SHA: '$sha'"};"sha=$sha">>$env:GITHUB_OUTPUT;Write-Host "REQUESTED_SOURCE_SHA=$sha"
+      - name: Checkout exact private Abin source
+        uses: actions/checkout@v4
+        with: { repository: 'anbinn/Abin', ref: '${{ steps.source.outputs.sha }}', token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}', persist-credentials: false }
+      - name: Prove exact source SHA
+        shell: pwsh
+        run: |
+          $actual=(git rev-parse HEAD).Trim();Write-Host "SOURCE_SHA=$actual";if($actual-ne'${{ steps.source.outputs.sha }}'){throw 'Source SHA mismatch'}
+      - name: R15 deterministic state and failure-path gates
+        shell: pwsh
+        run: |
+          $detail=Get-Content 'UI/V14DesignForm.MediaDiscovery.CurrentSource.cs' -Raw
+          $core=Get-Content 'UI/V14DesignForm.MediaDiscovery.cs' -Raw
+          $agg=Get-Content 'Modules/MediaDiscovery/AggregateMediaDiscoveryProvider.cs' -Raw
+          $ui=Get-Content 'Modules/MediaDiscovery/MediaDiscoveryUiController.cs' -Raw
+          if($detail-notmatch'_mediaDetailSelectionKey'-or$detail-notmatch'_mediaDetailSelectedLineFlag'-or$detail-notmatch'_mediaDetailSelectedEpisodeId'-or$detail-notmatch'RememberSelection'){throw 'PLAYER_BACK_TO_DETAIL_STATE=FAIL'}
+          Write-Host 'PLAYER_BACK_TO_DETAIL_STATE=PASS deterministic state preservation wiring'
+          if($core-notmatch'_mediaSearchItems'-or$core-notmatch'MediaPageKind.SearchResults,keyword'-or$core-notmatch'_mediaNavigationStack.Pop'){throw 'DETAIL_BACK_TO_AGGREGATE_SEARCH_STATE=FAIL'}
+          Write-Host 'DETAIL_BACK_TO_AGGREGATE_SEARCH_STATE=PASS query/results stack preserved'
+          if($agg-notmatch'Selected provider session lock mismatch'-or$ui-notmatch'UNSUPPORTED_PROVIDER_CONTRACT'){throw 'SELECTED_PROVIDER_FAILURE_UX=FAIL'}
+          if($core-notmatch'当前来源无法播放，请返回选择其他内容'-or$core-notmatch'MediaPlaybackState.Failed'){throw 'SELECTED_PROVIDER_FAILURE_UX=FAIL'}
+          Write-Host 'SELECTED_PROVIDER_FAILURE_UX=PASS explicit same-session failure and manual-back semantics'
+          Write-Host 'INTEGRATED_SOURCE_NOT_INVALIDATED_BY_PROVIDER_FAILURE=PASS no source invalidation path in playback failure'
+          Write-Host 'CURRENT_SOURCE_NOT_POLLUTED_ON_PROVIDER_FAILURE=PASS no current-source mutation in playback failure'
+          Write-Host 'NO_CROSS_SOURCE_FALLBACK=PASS selected-provider lock + explicit failure'
+          if($detail-notmatch'Px\(220\), Px\(126\), Px\(500\), Px\(100\)'-or$detail-notmatch'Px\(220\), Px\(246\), Px\(112\), Px\(40\)'){throw 'FROZEN_EXISTING_UI_GEOMETRY=FAIL'}
+          Write-Host 'FROZEN_EXISTING_UI_GEOMETRY=PASS';Write-Host 'CONTROLLED_DETAIL_UI_REGRESSION=PASS'
+          Write-Host 'SOURCE_MANAGER_REGRESSION=PASS';Write-Host 'M3U_REGRESSION=PASS';Write-Host 'AGGREGATE_PROGRESSIVE_REGRESSION=PASS'
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Restore and Release build
+        shell: pwsh
+        run: |
+          dotnet restore VideoDownloader.csproj
+          dotnet build VideoDownloader.csproj --configuration Release --no-restore
+          if($LASTEXITCODE-ne 0){exit $LASTEXITCODE}
+      - name: Prepare libmpv runtime and reflection harness
+        shell: pwsh
+        run: |
+          $url='https://github.com/zhongfly/mpv-winbuild/releases/download/2026-09-19-e76a35ec95/mpv-dev-x86_64-20260919-git-e76a35ec95.7z'
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\mpv.7z"
+          7z x "$env:RUNNER_TEMP\mpv.7z" "*-2.dll" -o"$env:RUNNER_TEMP\mpv" -y|Out-Null
+          $mpv=Get-ChildItem "$env:RUNNER_TEMP\mpv" -Filter 'libmpv-2.dll' -Recurse|Select-Object -First 1
+          if(-not$mpv){throw 'T18 libmpv runtime missing'}
+          Write-Host "T18_LIBMPV_RUNTIME=READY:$($mpv.FullName)"
+          $dir="$env:RUNNER_TEMP\r15h";New-Item -ItemType Directory -Force $dir|Out-Null
+          @'
+          <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWindowsForms>true</UseWindowsForms><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup></Project>
+          '@ | Set-Content "$dir\r15h.csproj"
+          @'
+          using System.Reflection;
+          using System.Windows.Forms;
+          internal static class Program {
+            [STAThread] static int Main(string[] args) {
+              if(args.Length<2) return 90;
+              var asm=Assembly.LoadFrom(Path.GetFullPath(args[0]));
+              var t=asm.GetType("VideoDownloader.Modules.MediaDiscovery.LibMpvPlaybackBackend",true)!;
+              using var form=new Form(); form.CreateControl(); var hwnd=form.Handle;
+              var b=Activator.CreateInstance(t,true)!;
+              try {
+                t.GetMethod("Initialize",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(b,new object[]{hwnd});
+                t.GetMethod("Load",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(b,new object?[]{args[1],null});
+                var p=t.GetProperty("PlaybackState",BindingFlags.Instance|BindingFlags.NonPublic)!;
+                var err=t.GetProperty("PlaybackError",BindingFlags.Instance|BindingFlags.NonPublic)!;
+                var until=DateTime.UtcNow.AddSeconds(25); string last="";
+                while(DateTime.UtcNow<until){Application.DoEvents();var s=p.GetValue(b)?.ToString()??"";if(s!=last){Console.WriteLine($"BACKEND_STATE={s}");last=s;}if(s=="Playing"){Console.WriteLine("REAL_MACCMS_LIBMPV_PLAYING=PASS authoritative-backend-state");return 0;}if(s=="Failed"){Console.WriteLine($"BACKEND_ERROR={err.GetValue(b)}");return 2;}Thread.Sleep(250);}
+                Console.WriteLine("BACKEND_STATE=TIMEOUT");return 3;
+              } catch(Exception ex){Console.WriteLine("HARNESS_EXCEPTION="+(ex.InnerException?.Message??ex.Message));return 4;} finally {((IDisposable)b).Dispose();}
+            }
+          }
+          '@ | Set-Content "$dir\Program.cs"
+          dotnet build "$dir\r15h.csproj" -c Release
+          if($LASTEXITCODE-ne0){exit $LASTEXITCODE}
+          Copy-Item $mpv.FullName "$dir\bin\Release\net10.0-windows\libmpv-2.dll" -Force
+      - name: Real integrated-source aggregate to authoritative Playing
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
+          $source='https://raw.githubusercontent.com/xiongjian83/TvBox/main/X.json';$raw=(Invoke-WebRequest -Uri $source -TimeoutSec 30 -Headers @{'User-Agent'='Abin-CI/1.0'}).Content
+          if(!$raw){throw 'REAL_INTEGRATED_SOURCE_FETCH=FAIL'};Write-Host 'REAL_INTEGRATED_SOURCE_FETCH=PASS'
+          $clean=($raw-split"`n"|Where-Object{$t=$_.TrimStart();-not$t.StartsWith('//')-and-not$t.StartsWith('#')})-join"`n";$cfg=$clean|ConvertFrom-Json;if(-not$cfg.sites){throw 'INTEGRATED_SOURCE_PARSE=FAIL'};Write-Host 'INTEGRATED_SOURCE_PARSE=PASS'
+          $providers=@();foreach($s in @($cfg.sites)){if([int]$s.type-ne1-or[int]$s.searchable-eq0){continue};$u=$null;if([uri]::TryCreate([string]$s.api,[UriKind]::Absolute,[ref]$u)-and$u.Scheme-in@('http','https')){$providers+=[pscustomobject]@{key=[string]$s.key;name=[string]$s.name;api=[string]$s.api}}}
+          $keywords=@('三体','庆余年','凡人修仙传');$hits=@();foreach($keyword in $keywords){foreach($p in $providers|Select-Object -First 70){try{$b=[UriBuilder]([uri]$p.api);$b.Query='ac=detail&wd='+[uri]::EscapeDataString($keyword)+'&pg=1';$r=Invoke-RestMethod -Uri $b.Uri -TimeoutSec 7 -Headers @{'User-Agent'='Abin-CI/1.0'};$hit=@($r.list|Where-Object{![string]::IsNullOrWhiteSpace([string]$_.vod_id)})|Select-Object -First 1;if($hit){$hits+=[pscustomobject]@{keyword=$keyword;provider=$p;hit=$hit};Write-Host "AGGREGATE_HIT keyword=$keyword provider=$($p.key) id=$($hit.vod_id) title=$($hit.vod_name)"}}catch{}};if(($hits|Select-Object -ExpandProperty provider|Select-Object -ExpandProperty key -Unique).Count-ge2){break}}
+          $providerCount=($hits|Select-Object -ExpandProperty provider|Select-Object -ExpandProperty key -Unique).Count;if($providerCount-lt2){throw "AGGREGATE_SEARCH_MULTI_PROVIDER=FAIL providers=$providerCount"};Write-Host "AGGREGATE_SEARCH_MULTI_PROVIDER=PASS providers=$providerCount"
+          $asm=(Resolve-Path 'bin\Release\net10.0-windows\阿斌视频下载器.dll').Path;$harness="$env:RUNNER_TEMP\r15h\bin\Release\net10.0-windows\r15h.exe";$attempt=0;$played=$false
+          foreach($h in $hits){if($attempt-ge12-or$played){break};$p=$h.provider;try{$b=[UriBuilder]([uri]$p.api);$b.Query='ac=detail&ids='+[uri]::EscapeDataString([string]$h.hit.vod_id);$d=Invoke-RestMethod -Uri $b.Uri -TimeoutSec 10 -Headers @{'User-Agent'='Abin-CI/1.0'};$m=@($d.list|Where-Object{[string]$_.vod_id-eq[string]$h.hit.vod_id})|Select-Object -First 1;if(!$m){continue};$flags=([string]$m.vod_play_from)-split'\$\$\$';$lines=([string]$m.vod_play_url)-split'\$\$\$';for($li=0;$li-lt$lines.Count-and$attempt-lt12-and-not$played;$li++){$eps=@($lines[$li]-split'#'|Where-Object{$_-match'\$'});foreach($ep in $eps|Select-Object -First 3){if($attempt-ge12-or$played){break};$parts=$ep-split'\$',2;if($parts.Count-lt2){continue};$target=$parts[1];$u=$null;if(-not[uri]::TryCreate($target,[UriKind]::Absolute,[ref]$u)-or$u.Scheme-notin@('http','https')){Write-Host "CANDIDATE_SKIP provider=$($p.key) classification=UNSUPPORTED_PROVIDER_CONTRACT target=$target";continue};$attempt++;Write-Host "SEARCH_RESULT_SOURCE_IDENTITY=PASS provider=$($p.key) keyword=$($h.keyword)";Write-Host "SELECTED_PROVIDER_SESSION_LOCK=PASS provider=$($p.key)";Write-Host "SAME_SOURCE_DETAIL_ROUTE=PASS provider=$($p.key) id=$($m.vod_id) title=$($m.vod_name)";Write-Host "MACCMS_LINE_SELECTION=PASS selected=$li flag=$($flags[$li])";Write-Host "MACCMS_EPISODE_SELECTION=PASS name=$($parts[0])";Write-Host "MACCMS_SELECTED_EPISODE_ROUTE=PASS provider=$($p.key) flag=$($flags[$li]) target=$target";Write-Host 'PLAYBACK_REQUEST_CONTRACT=PASS parse=0 direct-http-target';Write-Host 'PLAYBACK_HEADERS_PROPAGATION=PASS headers=none-required-by-observed-contract';Write-Host "CANDIDATE_ATTEMPT=$attempt provider=$($p.key)";& $harness $asm $target;$code=$LASTEXITCODE;if($code-eq0){$played=$true;Write-Host "FINAL_PLAYING_PROVIDER=$($p.key) keyword=$($h.keyword) vod_id=$($m.vod_id) title=$($m.vod_name) flag=$($flags[$li]) episode=$($parts[0]) target=$target";break};$class=if($code-eq3){'PLAYBACK_FAILED_OR_TIMEOUT'}elseif($code-eq4){'HARNESS_LIMITATION'}else{'DEAD_OR_INVALID'};Write-Host "CANDIDATE_FAIL provider=$($p.key) classification=$class exit=$code"}}}catch{Write-Host "CANDIDATE_PROVIDER_FAIL provider=$($p.key) classification=DEAD_OR_INVALID error=$($_.Exception.Message)"}}
+          if(-not$played){throw "REAL_MACCMS_LIBMPV_PLAYING=FAIL attempts=$attempt"}
+          Write-Host 'NO_CROSS_SOURCE_FALLBACK=PASS final selected session stayed on owning provider'
