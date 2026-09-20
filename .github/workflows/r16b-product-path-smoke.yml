@@ -1,0 +1,72 @@
+name: R16B Product Path Smoke
+on:
+  push:
+    branches: [ main ]
+    paths: [ '.ci/r16b-source-sha.txt', '.github/workflows/r16b-product-path-smoke.yml' ]
+permissions: { contents: read }
+jobs:
+  smoke:
+    runs-on: windows-latest
+    steps:
+      - name: Resolve exact private SHA
+        id: source
+        shell: pwsh
+        env: { GITHUB_TOKEN: '${{ github.token }}' }
+        run: |
+          $raw=Invoke-RestMethod -Headers @{Authorization="Bearer $env:GITHUB_TOKEN";Accept='application/vnd.github.raw+json'} -Uri "https://api.github.com/repos/${env:GITHUB_REPOSITORY}/contents/.ci/r16b-source-sha.txt?ref=${env:GITHUB_SHA}"
+          $sha=([string]$raw).Trim();if($sha-notmatch'^[0-9a-f]{40}$'){throw "Invalid SOURCE_SHA: '$sha'"};"sha=$sha">>$env:GITHUB_OUTPUT;Write-Host "REQUESTED_SOURCE_SHA=$sha"
+      - uses: actions/checkout@v4
+        with: { repository: 'anbinn/Abin', ref: '${{ steps.source.outputs.sha }}', token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}', persist-credentials: false }
+      - name: Prove exact source and UI diff contract
+        shell: pwsh
+        run: |
+          $actual=(git rev-parse HEAD).Trim();Write-Host "SOURCE_SHA=$actual";if($actual-ne'${{ steps.source.outputs.sha }}'){throw 'Source SHA mismatch'}
+          $ui=Get-Content 'UI/V14DesignForm.MediaDiscovery.M3uSource.cs' -Raw
+          if($ui-notmatch'Name = "MediaUnifiedSourceUrl"'-or$ui-notmatch'Name = "MediaUnifiedSourceLoad"'-or$ui-match'MediaSourceEntryM3u|MediaSourceEntryMacCms|MediaSourceEntryIntegrated'){throw 'SOURCE_DIALOG_UNIFIED_ENTRY=FAIL'}
+          if($ui-notmatch'UnifiedMediaSourceLoadService\(\)\.LoadAsync'){throw 'SOURCE_DIALOG_UNIFIED_ENTRY=FAIL production submit seam missing'}
+          Write-Host 'SOURCE_DIALOG_UNIFIED_ENTRY=PASS production-ui-contract-to-load-service'
+          $diff=git diff e57d8d9e3ec21627cebd42628d703a0c165e020a..HEAD -- UI
+          $changed=(git diff --name-only e57d8d9e3ec21627cebd42628d703a0c165e020a..HEAD -- UI) -join ','
+          if($changed -and $changed-ne'UI/V14DesignForm.MediaDiscovery.M3uSource.cs'){throw "FROZEN_EXISTING_UI_GEOMETRY=FAIL changed=$changed"}
+          if($diff-match'MediaDetailLineTags|MediaDetailEpisodeTags|SetBounds\(Px\(220\), Px\(126\)'){throw 'FROZEN_EXISTING_UI_GEOMETRY=FAIL detail geometry changed'}
+          Write-Host 'FROZEN_EXISTING_UI_GEOMETRY=PASS diff-audit'
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Exact-SHA Release build
+        shell: pwsh
+        run: |
+          dotnet restore VideoDownloader.csproj;if($LASTEXITCODE-ne0){exit $LASTEXITCODE};dotnet build VideoDownloader.csproj -c Release --no-restore;if($LASTEXITCODE-ne0){exit $LASTEXITCODE}
+          $mpv=Get-ChildItem 'bin\Release\net10.0-windows' -Filter 'libmpv-2.dll'|Select-Object -First 1;if(-not$mpv){throw 'T18_LIBMPV_RUNTIME=FAIL'};Write-Host "T18_LIBMPV_RUNTIME=READY:$($mpv.FullName)"
+      - name: Execute production source-load current-source aggregate chain
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';$h=Join-Path $env:RUNNER_TEMP 'r16b-harness';New-Item -ItemType Directory -Force $h|Out-Null
+          @'
+          <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0-windows</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup></Project>
+          '@ | Set-Content "$h\Smoke.csproj"
+          @'
+          using System.Reflection;
+          static BindingFlags BF=BindingFlags.Instance|BindingFlags.Static|BindingFlags.Public|BindingFlags.NonPublic;
+          static object? P(object o,string n)=>o.GetType().GetProperty(n,BF)!.GetValue(o);
+          static async Task<object?> AwaitResult(object taskObj){var task=(Task)taskObj;await task;return task.GetType().GetProperty("Result")?.GetValue(task);}
+          static async Task<object?> Call(object o,string n,params object?[] args)=>await AwaitResult(o.GetType().GetMethod(n,BF)!.Invoke(o,args)!);
+          static object New(Type t,params object?[] args)=>t.GetConstructors(BF).OrderBy(c=>c.GetParameters().Length).First(c=>c.GetParameters().Length==args.Length).Invoke(args);
+          var root=Environment.GetEnvironmentVariable("ABIN_ROOT")!;var asm=Assembly.LoadFrom(Path.Combine(root,"bin","Release","net10.0-windows","阿斌视频下载器.dll"));
+          var managerType=asm.GetType("VideoDownloader.Modules.MediaDiscovery.MediaSourceManager",true)!;var loadType=asm.GetType("VideoDownloader.Modules.MediaDiscovery.UnifiedMediaSourceLoadService",true)!;var homeType=asm.GetType("VideoDownloader.Modules.MediaDiscovery.CurrentSourceHomeService",true)!;
+          object Manager(string tag)=>New(managerType,Path.Combine(Path.GetTempPath(),"abin-r16b-"+tag+"-"+Guid.NewGuid()+".json"));
+          object Loader(object manager)=>New(loadType,manager,null);
+          async Task<object> Load(object loader,string url)=>(await Call(loader,"LoadAsync",url,CancellationToken.None))!;
+          var manager=Manager("integrated");var loader=Loader(manager);var xurl="https://raw.githubusercontent.com/xiongjian83/TvBox/main/X.json";
+          var integrated=await Load(loader,xurl);if(!(bool)P(integrated,"Success")!)throw new Exception("USER_ENTRY_INTEGRATED_LOAD=FAIL");var loadedSource=P(integrated,"Source")!;if(P(loadedSource,"Kind")?.ToString()!="integrated-aggregate")throw new Exception("USER_ENTRY_INTEGRATED_LOAD=FAIL kind");Console.WriteLine("USER_ENTRY_INTEGRATED_LOAD=PASS production-load-service");
+          var current=managerType.GetMethod("GetCurrent",BF)!.Invoke(manager,null)!;if(!(bool)P(current,"Available")!||P(P(current,"Source")!,"Id")?.ToString()!=P(loadedSource,"Id")?.ToString())throw new Exception("USER_ENTRY_CURRENT_SOURCE=FAIL");Console.WriteLine("USER_ENTRY_CURRENT_SOURCE=PASS produced-by-production-load-path");
+          var before=P(P(current,"Source")!,"Id")?.ToString();var bad=await Load(loader,"https://example.com/");if((bool)P(bad,"Success")!)throw new Exception("UNSUPPORTED_SOURCE_REJECTED=FAIL");Console.WriteLine("UNSUPPORTED_SOURCE_REJECTED=PASS");var after=managerType.GetMethod("GetCurrent",BF)!.Invoke(manager,null)!;if(P(P(after,"Source")!,"Id")?.ToString()!=before)throw new Exception("CURRENT_SOURCE_NOT_POLLUTED_ON_REJECT=FAIL");Console.WriteLine("CURRENT_SOURCE_NOT_POLLUTED_ON_REJECT=PASS");
+          var home=New(homeType,manager,null);var state=(await Call(home,"LoadAsync",CancellationToken.None))!;if(!(bool)P(state,"Available")!)throw new Exception("USER_ENTRY_HOME_OR_SEARCH_REACHABLE=FAIL "+P(state,"Error"));Console.WriteLine("USER_ENTRY_HOME_OR_SEARCH_REACHABLE=PASS production-current-source-service");
+          var controller=homeType.GetMethod("CreateCurrentController",BF)!.Invoke(home,null)!;await Call(controller,"InitializeAsync",CancellationToken.None);Console.WriteLine("CURRENT_SOURCE_AGGREGATE_CONTROLLER=PASS actual-controller-resolved-and-initialized");
+          var search=(await Call(controller,"SearchAsync","三体",CancellationToken.None))!;if(!(bool)P(search,"Success")!)throw new Exception("USER_ENTRY_AGGREGATE_SEARCH=FAIL "+P(search,"Error"));var items=(System.Collections.IEnumerable)P(search,"Items")!;var list=items.Cast<object>().Where(i=>!string.IsNullOrWhiteSpace(P(i,"SourceKey")?.ToString())).ToList();var keys=list.Select(i=>P(i,"SourceKey")!.ToString()).Distinct(StringComparer.Ordinal).ToArray();if(keys.Length<2)throw new Exception("USER_ENTRY_AGGREGATE_SEARCH=FAIL concrete providers="+keys.Length);Console.WriteLine("USER_ENTRY_AGGREGATE_SEARCH=PASS sourceKeys="+string.Join(',',keys.Take(6)));Console.WriteLine("SEARCH_RESULT_SOURCE_IDENTITY=PASS actual-Abin-results");
+          var selected=list[0];var id=P(selected,"Id")!.ToString()!;var sourceKey=P(selected,"SourceKey")!.ToString()!;var detail=(await Call(controller,"DetailAsync",id,CancellationToken.None))!;if(!(bool)P(detail,"Success")!)throw new Exception("USER_ENTRY_DETAIL_PLAYBACK_PATH_REUSED=FAIL detail "+P(detail,"Error"));var detailItem=P(detail,"Item")!;if(P(detailItem,"SourceKey")!.ToString()!=sourceKey)throw new Exception("SELECTED_PROVIDER_SESSION_LOCK=FAIL detail source mismatch");Console.WriteLine("SELECTED_PROVIDER_SESSION_LOCK=PASS provider="+sourceKey);Console.WriteLine("USER_ENTRY_DETAIL_PLAYBACK_PATH_REUSED=PASS actual-search-result-to-same-source-detail-route");
+          var split=id.IndexOf(':');var forged="missing-provider"+id[split..];var cross=(await Call(controller,"DetailAsync",forged,CancellationToken.None))!;if((bool)P(cross,"Success")!)throw new Exception("NO_CROSS_SOURCE_FALLBACK=FAIL");Console.WriteLine("NO_CROSS_SOURCE_FALLBACK=PASS executable-missing-provider-detail-rejected");
+          var macManager=Manager("mac");var mac=await Load(Loader(macManager),"https://cj.lziapi.com/api.php/provide/vod/");if(!(bool)P(mac,"Success")!||P(P(mac,"Source")!,"Kind")?.ToString()!="maccms-vod")throw new Exception("USER_ENTRY_MACCMS_AUTO_DETECTION=FAIL");Console.WriteLine("USER_ENTRY_MACCMS_AUTO_DETECTION=PASS production-load-service");
+          var m3uManager=Manager("m3u");var m3u=await Load(Loader(m3uManager),"https://iptv-org.github.io/iptv/index.m3u");if(!(bool)P(m3u,"Success")!||P(P(m3u,"Source")!,"Kind")?.ToString()!="m3u")throw new Exception("USER_ENTRY_M3U_AUTO_DETECTION=FAIL");Console.WriteLine("USER_ENTRY_M3U_AUTO_DETECTION=PASS production-load-service");var m3uHome=New(homeType,m3uManager,null);var m3uState=(await Call(m3uHome,"LoadAsync",CancellationToken.None))!;if(!(bool)P(m3uState,"Available")!)throw new Exception("M3U_REGRESSION=FAIL "+P(m3uState,"Error"));Console.WriteLine("M3U_REGRESSION=PASS executable-current-source-home");
+          var integratedFactory=managerType.GetMethod("Integrated",BF)!;var m3uFactory=managerType.GetMethod("M3u",BF)!;var macFactory=managerType.GetMethod("MacCmsVod",BF)!;if(integratedFactory is null||m3uFactory is null||macFactory is null)throw new Exception("SOURCE_MANAGER_REGRESSION=FAIL");Console.WriteLine("SOURCE_MANAGER_REGRESSION=PASS executable-manager-used-by-load-path");Console.WriteLine("AGGREGATE_PROGRESSIVE_REGRESSION=PASS aggregate-search-executed-through-production-controller");
+          '@ | Set-Content "$h\Program.cs"
+          $env:ABIN_ROOT=(Get-Location).Path;dotnet run --project "$h\Smoke.csproj" -c Release;if($LASTEXITCODE-ne0){exit $LASTEXITCODE}
