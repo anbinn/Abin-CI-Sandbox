@@ -36,7 +36,7 @@ jobs:
           "sha=$sha" >> $env:GITHUB_OUTPUT
           Write-Host "REQUESTED_SOURCE_SHA=$sha"
 
-      - name: Integrated MacCMS provider preflight
+      - name: MacCMS media contract audit
         id: provider
         shell: pwsh
         run: |
@@ -50,75 +50,86 @@ jobs:
             @{ key='dbzy'; base='https://api.dbzy.tv/api.php/provide/vod/' }
           )
           $keywords = @('三体','庆余年','凡人修仙传','哪吒')
-          function Get-Json([string]$uri) {
-            Invoke-RestMethod -Uri $uri -Method Get -TimeoutSec 15 -Headers @{ 'User-Agent'='Abin-CI-Preflight/1.0' }
-          }
-          function Reject([string]$key,[string]$stage,[string]$reason) {
+          function Get-Json([string]$uri) { Invoke-RestMethod -Uri $uri -Method Get -TimeoutSec 15 -Headers @{ 'User-Agent'='Mozilla/5.0 Abin-CI/1.0' } }
+          function Reject([string]$key,[string]$stage,[string]$class,[string]$reason) {
             $safe = $reason -replace '[\r\n]+',' ' -replace '::','--'
-            Write-Host "TEST_PROVIDER_REJECTED provider=$key stage=$stage reason=$safe"
+            Write-Host "MEDIA_CONTRACT_CLASSIFIED provider=$key class=$class stage=$stage reason=$safe"
+            Write-Host "TEST_PROVIDER_REJECTED provider=$key stage=$stage class=$class reason=$safe"
           }
-          $selected = $null
-          foreach ($p in $providers) {
-            $key = $p.key; $base = $p.base
-            Write-Host "TEST_PROVIDER_BEGIN provider=$key"
-            try {
-              try { $list = Get-Json $base } catch { Reject $key 'HTTP_JSON' $_.Exception.Message; continue }
-              if ($null -eq $list -or $null -eq $list.list) { Reject $key 'HTTP_JSON' 'response missing list'; continue }
-              Write-Host "TEST_PROVIDER_HTTP_JSON=PASS provider=$key"
-
-              $search = $null; $keyword = $null
-              foreach ($candidate in $keywords) {
-                try { $probe = Get-Json ($base + '?ac=detail&wd=' + [uri]::EscapeDataString($candidate)) } catch { continue }
-                if ($probe.list -and @($probe.list).Count -gt 0) { $search=$probe; $keyword=$candidate; break }
-              }
-              if ($null -eq $search) { Reject $key 'SEARCH' 'real keyword search returned no results'; continue }
-              $hit = @($search.list)[0]
-              if ([string]::IsNullOrWhiteSpace([string]$hit.vod_id)) { Reject $key 'SEARCH' 'result missing vod_id'; continue }
-              Write-Host "TEST_PROVIDER_SEARCH=PASS provider=$key keyword=$keyword vod_id=$($hit.vod_id)"
-
-              try { $detail = Get-Json ($base + '?ac=detail&ids=' + [uri]::EscapeDataString([string]$hit.vod_id)) } catch { Reject $key 'DETAIL' $_.Exception.Message; continue }
-              if (-not $detail.list -or @($detail.list).Count -eq 0) { Reject $key 'DETAIL' 'no detail item'; continue }
-              $vod = @($detail.list)[0]
-              if ([string]::IsNullOrWhiteSpace([string]$vod.vod_play_from) -or [string]::IsNullOrWhiteSpace([string]$vod.vod_play_url)) { Reject $key 'DETAIL' 'missing play fields'; continue }
-              Write-Host "TEST_PROVIDER_DETAIL=PASS provider=$key"
-
-              $flags = ([string]$vod.vod_play_from) -split '\$\$\$'
-              $lines = ([string]$vod.vod_play_url) -split '\$\$\$'
-              $episode = $null; $flag = $null
-              for ($i=0; $i -lt [Math]::Min($flags.Count,$lines.Count); $i++) {
-                foreach ($entry in ($lines[$i] -split '#')) {
-                  if ([string]::IsNullOrWhiteSpace($entry)) { continue }
-                  $dollar = $entry.IndexOf('$')
-                  $target = if ($dollar -ge 0) { $entry.Substring($dollar+1) } else { $entry }
-                  if ($target -match '^https?://') { $episode=$target; $flag=$flags[$i]; break }
-                }
-                if ($episode) { break }
-              }
-              if (-not $episode) { Reject $key 'EPISODE' 'no HTTP episode URL parsed'; continue }
-              Write-Host "TEST_PROVIDER_EPISODE=PASS provider=$key flag=$flag"
-
+          function Test-Playlist([string]$url,[string]$referer) {
+            $headerSets = @(
+              @{ name='default'; headers=@{ 'User-Agent'='Mozilla/5.0 Abin-CI/1.0'; 'Accept'='application/vnd.apple.mpegurl,application/x-mpegURL,*/*' } },
+              @{ name='provider-referer'; headers=@{ 'User-Agent'='Mozilla/5.0 Abin-CI/1.0'; 'Accept'='application/vnd.apple.mpegurl,application/x-mpegURL,*/*'; 'Referer'=$referer } }
+            )
+            foreach($h in $headerSets) {
               try {
-                $media = Invoke-WebRequest -Uri $episode -Method Get -TimeoutSec 15 -MaximumRedirection 5 -Headers @{ 'User-Agent'='Abin-CI-Preflight/1.0'; 'Range'='bytes=0-4095' }
-              } catch {
-                Reject $key 'MEDIA_URL' $_.Exception.Message; continue
-              }
-              if ($media.StatusCode -lt 200 -or $media.StatusCode -ge 400) { Reject $key 'MEDIA_URL' "HTTP $($media.StatusCode)"; continue }
-              Write-Host "TEST_PROVIDER_MEDIA_URL=PASS provider=$key status=$($media.StatusCode)"
-              $selected = $key
-              Write-Host "SELECTED_HEALTHY_TEST_PROVIDER=$key"
-              Write-Host 'INTEGRATED_TEST_SOURCE_HEALTHY=PASS'
-              Write-Host 'TEST_SOURCE_PREFLIGHT_HTTP_JSON=PASS'
-              Write-Host 'TEST_SOURCE_PREFLIGHT_SEARCH=PASS'
-              Write-Host 'TEST_SOURCE_PREFLIGHT_DETAIL=PASS'
-              Write-Host 'TEST_SOURCE_PREFLIGHT_EPISODE=PASS'
-              Write-Host 'TEST_SOURCE_PREFLIGHT_MEDIA_URL=PASS'
-              "key=$key" >> $env:GITHUB_OUTPUT
-              break
-            } catch {
-              Reject $key 'UNEXPECTED' $_.Exception.Message
+                $r=Invoke-WebRequest -Uri $url -Method Get -TimeoutSec 15 -MaximumRedirection 5 -Headers $h.headers
+                $body=[string]$r.Content
+                if($r.StatusCode -ge 200 -and $r.StatusCode -lt 400 -and ($body.TrimStart().StartsWith('#EXTM3U') -or $body -match '#EXT-X-')) {
+                  return @{ ok=$true; mode=$h.name; status=$r.StatusCode; final=[string]$r.BaseResponse.RequestMessage.RequestUri }
+                }
+              } catch { $last=$_.Exception.Message }
             }
+            return @{ ok=$false; reason=$last }
           }
-          if (-not $selected) { throw 'INTEGRATED_TEST_SOURCE_HEALTHY=FAIL: all candidate providers rejected' }
+          $selected=$null
+          foreach($p in $providers) {
+            $key=$p.key; $base=$p.base
+            Write-Host "TEST_PROVIDER_BEGIN provider=$key"
+            try { $list=Get-Json $base } catch { Reject $key 'HTTP_JSON' 'DEAD_OR_INVALID' $_.Exception.Message; continue }
+            if($null -eq $list -or $null -eq $list.list) { Reject $key 'HTTP_JSON' 'DEAD_OR_INVALID' 'response missing list'; continue }
+            Write-Host "TEST_PROVIDER_HTTP_JSON=PASS provider=$key"
+            $search=$null; $keyword=$null
+            foreach($candidate in $keywords) {
+              try { $probe=Get-Json ($base+'?ac=detail&wd='+[uri]::EscapeDataString($candidate)) } catch { continue }
+              if($probe.list -and @($probe.list).Count -gt 0) { $search=$probe; $keyword=$candidate; break }
+            }
+            if($null -eq $search) { Reject $key 'SEARCH' 'DEAD_OR_INVALID' 'real keyword search returned no results'; continue }
+            $hit=@($search.list)[0]
+            if([string]::IsNullOrWhiteSpace([string]$hit.vod_id)) { Reject $key 'SEARCH' 'DEAD_OR_INVALID' 'result missing vod_id'; continue }
+            Write-Host "TEST_PROVIDER_SEARCH=PASS provider=$key keyword=$keyword vod_id=$($hit.vod_id)"
+            try { $detail=Get-Json ($base+'?ac=detail&ids='+[uri]::EscapeDataString([string]$hit.vod_id)) } catch { Reject $key 'DETAIL' 'DEAD_OR_INVALID' $_.Exception.Message; continue }
+            if(-not $detail.list -or @($detail.list).Count -eq 0) { Reject $key 'DETAIL' 'DEAD_OR_INVALID' 'no detail item'; continue }
+            $vod=@($detail.list)[0]
+            if([string]::IsNullOrWhiteSpace([string]$vod.vod_play_from) -or [string]::IsNullOrWhiteSpace([string]$vod.vod_play_url)) { Reject $key 'DETAIL' 'DEAD_OR_INVALID' 'missing play fields'; continue }
+            Write-Host "TEST_PROVIDER_DETAIL=PASS provider=$key"
+            $flags=([string]$vod.vod_play_from)-split '\$\$\$'; $lines=([string]$vod.vod_play_url)-split '\$\$\$'
+            $episode=$null; $flag=$null
+            for($i=0;$i -lt [Math]::Min($flags.Count,$lines.Count);$i++) {
+              foreach($entry in ($lines[$i]-split '#')) {
+                if([string]::IsNullOrWhiteSpace($entry)){continue}; $d=$entry.IndexOf('$'); $target=if($d -ge 0){$entry.Substring($d+1)}else{$entry}
+                if($target -match '^https?://'){ $episode=$target; $flag=$flags[$i]; break }
+              }; if($episode){break}
+            }
+            if(-not $episode){ Reject $key 'EPISODE' 'PARSE_REQUIRED' 'no direct HTTP episode URL'; continue }
+            Write-Host "TEST_PROVIDER_EPISODE=PASS provider=$key flag=$flag"
+            $u=[uri]$episode
+            if($u.AbsolutePath -notmatch '\.(m3u8|mp4|flv|mpd|mkv|webm)$') { Reject $key 'MEDIA_URL' 'PARSE_REQUIRED' 'episode target is not a direct media extension'; continue }
+            if($u.AbsolutePath -match '\.m3u8$') {
+              $origin=([uri]$base).GetLeftPart([System.UriPartial]::Authority)+'/'
+              $t=Test-Playlist $episode $origin
+              if($t.ok) {
+                $class=if($t.mode -eq 'provider-referer'){'HEADER_REQUIRED'}else{'DIRECT_MEDIA'}
+                Write-Host "MEDIA_CONTRACT_CLASSIFIED provider=$key class=$class flag=$flag"
+                Write-Host "TEST_PROVIDER_MEDIA_URL=PASS provider=$key mode=$($t.mode) status=$($t.status) playlist=EXTM3U"
+                $selected=$key; Write-Host "SELECTED_HEALTHY_TEST_PROVIDER=$key"; Write-Host 'INTEGRATED_TEST_SOURCE_HEALTHY=PASS'
+                Write-Host 'TEST_SOURCE_PREFLIGHT_HTTP_JSON=PASS'; Write-Host 'TEST_SOURCE_PREFLIGHT_SEARCH=PASS'; Write-Host 'TEST_SOURCE_PREFLIGHT_DETAIL=PASS'; Write-Host 'TEST_SOURCE_PREFLIGHT_EPISODE=PASS'; Write-Host 'TEST_SOURCE_PREFLIGHT_MEDIA_URL=PASS'
+                "key=$key" >> $env:GITHUB_OUTPUT; break
+              }
+              Reject $key 'MEDIA_URL' 'REGION_BLOCKED' ($t.reason ?? 'playlist unavailable on runner'); continue
+            }
+            try {
+              $head=Invoke-WebRequest -Uri $episode -Method Head -TimeoutSec 15 -MaximumRedirection 5 -Headers @{ 'User-Agent'='Mozilla/5.0 Abin-CI/1.0' }
+              if($head.StatusCode -ge 200 -and $head.StatusCode -lt 400) {
+                Write-Host "MEDIA_CONTRACT_CLASSIFIED provider=$key class=DIRECT_MEDIA flag=$flag"
+                Write-Host "TEST_PROVIDER_MEDIA_URL=PASS provider=$key mode=HEAD status=$($head.StatusCode)"
+                $selected=$key; Write-Host "SELECTED_HEALTHY_TEST_PROVIDER=$key"; Write-Host 'INTEGRATED_TEST_SOURCE_HEALTHY=PASS'
+                Write-Host 'TEST_SOURCE_PREFLIGHT_HTTP_JSON=PASS'; Write-Host 'TEST_SOURCE_PREFLIGHT_SEARCH=PASS'; Write-Host 'TEST_SOURCE_PREFLIGHT_DETAIL=PASS'; Write-Host 'TEST_SOURCE_PREFLIGHT_EPISODE=PASS'; Write-Host 'TEST_SOURCE_PREFLIGHT_MEDIA_URL=PASS'
+                "key=$key" >> $env:GITHUB_OUTPUT; break
+              }
+            } catch { Reject $key 'MEDIA_URL' 'REGION_BLOCKED' $_.Exception.Message; continue }
+          }
+          if(-not $selected){ throw 'INTEGRATED_TEST_SOURCE_HEALTHY=FAIL: no candidate has a truthful consumable media route' }
 
       - name: Checkout exact private Abin source
         uses: actions/checkout@v4
@@ -131,9 +142,7 @@ jobs:
       - name: Prove exact source SHA
         shell: pwsh
         run: |
-          $actual = (git rev-parse HEAD).Trim()
-          Write-Host "SOURCE_SHA=$actual"
-          if ($actual -ne '${{ steps.source.outputs.sha }}') { throw "Source SHA mismatch" }
+          $actual=(git rev-parse HEAD).Trim(); Write-Host "SOURCE_SHA=$actual"; if($actual -ne '${{ steps.source.outputs.sha }}'){throw 'Source SHA mismatch'}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
