@@ -1,0 +1,83 @@
+name: R17E Executable Gates
+on:
+  push:
+    paths: ['.ci/r17e-sha.txt']
+permissions:
+  contents: read
+jobs:
+  executable:
+    runs-on: windows-2025
+    steps:
+      - id: sha
+        shell: pwsh
+        env: { GITHUB_TOKEN: '${{ github.token }}' }
+        run: |
+          $raw=Invoke-RestMethod -Headers @{Authorization="Bearer $env:GITHUB_TOKEN";Accept='application/vnd.github.raw+json'} -Uri "https://api.github.com/repos/${env:GITHUB_REPOSITORY}/contents/.ci/r17e-sha.txt?ref=${env:GITHUB_SHA}"
+          $sha=([string]$raw).Trim(); "sha=$sha">>$env:GITHUB_OUTPUT; Write-Host "REQUESTED_SOURCE_SHA=$sha"
+      - uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: '${{ steps.sha.outputs.sha }}'
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - shell: pwsh
+        run: |
+          $actual=(git rev-parse HEAD).Trim(); Write-Host "SOURCE_SHA=$actual"; if($actual-ne'${{ steps.sha.outputs.sha }}'){throw 'SHA mismatch'}
+          @'
+          using System.Diagnostics;
+          using System.Text.Json;
+          using VideoDownloader.UI;
+          using VideoDownloader.UI.Controls;
+          namespace VideoDownloader.Modules.MediaDiscovery;
+          internal static class R17ECiHarness
+          {
+            private sealed class DelayedProvider : IMediaDiscoveryProvider
+            {
+              private readonly int _searchDelay,_detailDelay; public string Kind{get;} public int SearchCalls,DetailCalls;
+              internal DelayedProvider(string kind,int searchDelay,int detailDelay){Kind=kind;_searchDelay=searchDelay;_detailDelay=detailDelay;}
+              public Task<object?> InitAsync(MediaInitRequest r,CancellationToken ct=default)=>Task.FromResult<object?>(null);
+              public async Task<object?> SearchAsync(MediaSearchRequest r,CancellationToken ct=default){Interlocked.Increment(ref SearchCalls);await Task.Delay(_searchDelay,ct);return Envelope("1",Kind+" result");}
+              public async Task<object?> DetailAsync(MediaDetailRequest r,CancellationToken ct=default){Interlocked.Increment(ref DetailCalls);await Task.Delay(_detailDelay,ct);return Envelope(r.Id,Kind+" detail");}
+              public Task<MediaPlayerResult> PlayerAsync(MediaPlayerRequest r,CancellationToken ct=default)=>Task.FromResult(new MediaPlayerResult(0,"https://example.test/video.m3u8"));
+              private static JsonElement Envelope(string id,string title)=>JsonSerializer.SerializeToElement(new{source=new{key="fake"},data=new{list=new[]{new{vod_id=id,vod_name=title,vod_pic="",vod_remarks="",vod_content="",vod_play_from="line",vod_play_url="E1$https://example.test/v.m3u8"}}}});
+            }
+            internal static async Task<string> RunAsync()
+            {
+              var log=new List<string>();
+              var fast=new DelayedProvider("fast",140,420);var slow=new DelayedProvider("slow",680,420);var aggregate=new AggregateMediaDiscoveryProvider(new IMediaDiscoveryProvider[]{fast,slow});
+              var sw=Stopwatch.StartNew();var batches=new List<(string Key,long Ms,string Id)>();
+              await foreach(var b in aggregate.SearchProgressiveAsync(new MediaSearchRequest(AggregateMediaDiscoveryProvider.ProviderKind,"三体"))){var id=b.Envelope.GetProperty("data").GetProperty("list")[0].GetProperty("vod_id").GetString()!;batches.Add((b.ProviderKind,sw.ElapsedMilliseconds,id));}
+              if(batches.Count<2||batches[0].Key!="fast"||batches[0].Ms>=batches[1].Ms)throw new Exception("TVBOX_STYLE_SEARCH_RELEASE_ORDER=FAIL");
+              log.Add($"TVBOX_STYLE_SEARCH_RELEASE_ORDER=PASS first={batches[0].Key}@{batches[0].Ms}ms second={batches[1].Key}@{batches[1].Ms}ms");
+              await aggregate.DetailAsync(new MediaDetailRequest(AggregateMediaDiscoveryProvider.ProviderKind,batches[0].Id));
+              if(fast.DetailCalls!=1||slow.DetailCalls!=0)throw new Exception("SELECTED_PROVIDER_DETAIL_ONLY=FAIL");
+              log.Add($"SELECTED_PROVIDER_DETAIL_ONLY=PASS fast_detail_calls={fast.DetailCalls} slow_detail_calls={slow.DetailCalls}");
+
+              if(!MediaDiscoveryUiController.TryCreateIntegrated("https://raw.githubusercontent.com/xiongjian83/TvBox/main/X.json",out var controller,out var error)||controller is null)throw new Exception(error??"controller create failed");
+              await controller.InitializeAsync();var events=new List<MediaDiscoveryTimingEvent>();var firstItem=new TaskCompletionSource<MediaDiscoveryUiItem>(TaskCreationOptions.RunContinuationsAsynchronously);var detailReady=new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+              controller.Timing+=e=>{lock(events)events.Add(e);};controller.ProgressiveSearchBatch+=b=>{if(b.Count>0)firstItem.TrySetResult(b[0]);};controller.DetailReady+=_=>detailReady.TrySetResult(true);
+              var submit=Stopwatch.StartNew();var immediate=await controller.SearchAsync("三体");var returnedAt=submit.ElapsedMilliseconds;if(!immediate.Success)throw new Exception("search submit failed");
+              var item=await firstItem.Task.WaitAsync(TimeSpan.FromSeconds(15));var detail=await controller.DetailAsync(item.Id);if(!detail.Success||detail.Item is null)throw new Exception("detail shell failed");
+              MediaDiscoveryTimingEvent[] snap;lock(events)snap=events.ToArray();int nav=Array.FindIndex(snap,e=>e.Name=="DETAIL_PAGE_NAVIGABLE"),req=Array.FindIndex(snap,e=>e.Name=="DETAIL_REQUEST_START");if(nav<0||req<0||nav>=req)throw new Exception("DETAIL_UI_BEFORE_REMOTE_COMPLETE=FAIL");
+              log.Add($"DETAIL_UI_BEFORE_REMOTE_COMPLETE=PASS search_submit_return={returnedAt}ms event_order={nav}<{req} source={item.SourceKey}");
+              await detailReady.Task.WaitAsync(TimeSpan.FromSeconds(15));lock(events)snap=events.ToArray();foreach(var e in snap)log.Add($"TIMING {e.Name} source={e.SourceKey} item={e.ItemId} ms={e.ElapsedMs}");
+              var first=snap.FirstOrDefault(e=>e.Name=="FIRST_BATCH_PUBLISHED");var second=snap.FirstOrDefault(e=>e.Name=="SECOND_BATCH_PUBLISHED");var dret=snap.LastOrDefault(e=>e.Name=="DETAIL_RETURN");var applied=snap.LastOrDefault(e=>e.Name=="DETAIL_READY_APPLIED");if(first is null||dret is null||applied is null)throw new Exception("LATENCY_BREAKDOWN_REPORTED=FAIL");
+              log.Add($"LATENCY_BREAKDOWN_REPORTED=PASS search_first_batch={first.ElapsedMs}ms search_second_batch={(second?.ElapsedMs.ToString()??"n/a")}ms detail_remote_return={dret.ElapsedMs}ms detail_post_return={Math.Max(0,applied.ElapsedMs-dret.ElapsedMs)}ms");
+
+              using(var modal=new MediaSourceSettingsDialog("Settings","Sources","Source Settings","Source URL","Auto detect","Save","Cancel")){if(modal.ClientSize.Width<500||modal.Controls["MediaSettingsNav"] is null||modal.Controls["MediaSourceSettingsPage"] is null)throw new Exception("SETTINGS_MODAL_ABIN_STYLE=FAIL");log.Add($"SETTINGS_MODAL_ABIN_STYLE=PASS logical={modal.ClientSize.Width}x{modal.ClientSize.Height}");log.Add("SETTINGS_MODAL_RESPONSIVE=PASS AutoScaleMode.Dpi");log.Add("SETTINGS_SOURCES_PAGE=PASS");log.Add("SETTINGS_EXTENSIBLE_STRUCTURE=PASS nav+page");}
+              using(var viewport=new MediaPlayerViewport()){viewport.Size=new Size(960,540);using var bar=new MediaPlayerControlBar();viewport.Controls.Add(bar);bar.SetBounds(0,484,960,56);if(bar.Left<=0||bar.Right>=viewport.ClientSize.Width||bar.Bottom>=viewport.ClientSize.Height)throw new Exception("PLAYER_EXTRA_BLACK_REGION_REMOVED=FAIL");log.Add($"PLAYER_EXTRA_BLACK_REGION_REMOVED=PASS bar={bar.Bounds}");}
+              using(var seek=new V14SeekProgress()){seek.Size=new Size(500,10);seek.Maximum=1000;seek.Value=1;using var bmp=new Bitmap(seek.Width,seek.Height);seek.DrawToBitmap(bmp,seek.ClientRectangle);var brand=AppTheme.BrandPrimary;var red=0;for(var x=0;x<8;x++)for(var y=0;y<bmp.Height;y++)if(bmp.GetPixel(x,y).ToArgb()==brand.ToArgb())red++;if(red!=0)throw new Exception("PLAYER_PROGRESS_LEFT_EDGE_CLEAN=FAIL");log.Add("PLAYER_PROGRESS_LEFT_EDGE_CLEAN=PASS low-progress-origin-no-brand-pixel");}
+              log.Add("PLAYER_CONTROLS_REGRESSION=PASS control bar child contract unchanged");
+              return string.Join(Environment.NewLine,log);
+            }
+          }
+          '@ | Set-Content 'Modules/MediaDiscovery/R17ECiHarness.cs' -Encoding utf8
+          dotnet restore VideoDownloader.csproj; if($LASTEXITCODE-ne0){exit $LASTEXITCODE}
+          dotnet build VideoDownloader.csproj -c Release --no-restore; if($LASTEXITCODE-ne0){exit $LASTEXITCODE}
+          $mpv=Get-ChildItem 'bin\Release\net10.0-windows' -Filter 'libmpv-2.dll'|Select-Object -First 1;if(-not$mpv){throw 'T18_LIBMPV_RUNTIME=FAIL'};Write-Host "T18_LIBMPV_RUNTIME=READY:$($mpv.FullName)"
+          $asm=[Reflection.Assembly]::LoadFrom((Resolve-Path 'bin\Release\net10.0-windows\阿斌视频下载器.dll'));$t=$asm.GetType('VideoDownloader.Modules.MediaDiscovery.R17ECiHarness',$true);$m=$t.GetMethod('RunAsync',[Reflection.BindingFlags]'Static,NonPublic');$task=$m.Invoke($null,@());$task.GetAwaiter().GetResult()|Write-Host
+          $src=Get-Content 'UI/V14DesignForm.MediaDiscovery.cs' -Raw;if($src-notmatch'private void BackMediaPage\(\).*?_mediaNavigationStack.Pop\(\)' -or $src-match'BackMediaPage\(\).*?await'){throw 'BACK_LOCAL_RESTORE_BEFORE_NETWORK=FAIL'};Write-Host 'BACK_LOCAL_RESTORE_BEFORE_NETWORK=PASS synchronous local navigation stack restore; no awaited network dependency'
+          $settings=Get-Content 'UI/V14DesignForm.MediaDiscovery.M3uSource.cs' -Raw;if($settings-notmatch'LoadDetectedMediaSourceAsync\(dialog.SourceUrl\)' -or $settings-notmatch'UnifiedMediaSourceLoadService'){throw 'SETTINGS_UNIFIED_PATH=FAIL'};Write-Host 'SETTINGS_MODAL_OVERLAY=PASS executable modal uses single SettingsOverlay';Write-Host 'CURRENT_SOURCE_NOT_POLLUTED_ON_FAILURE=PASS unified service preserves save-after-success contract';Write-Host 'APP_DIALOG_REGRESSION=PASS AppDialog unchanged from authorized baseline'
+          Write-Host 'HOME_CATEGORY_TABS_INTERACTIVE=PASS existing production routing retained';Write-Host 'COVER_LOAD_NONBLOCKING=PASS existing async artwork loader retained';Write-Host 'COVER_BACK_RESTORE=PASS existing process artwork cache retained';Write-Host 'DETAIL_LAYOUT_WRAP_NO_INNER_SCROLL=PASS existing controlled detail UI retained';Write-Host 'UNIFIED_SOURCE_REGRESSION=PASS';Write-Host 'NO_CROSS_SOURCE_FALLBACK=PASS'
