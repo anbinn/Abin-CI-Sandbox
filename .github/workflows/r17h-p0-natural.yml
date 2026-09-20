@@ -16,11 +16,7 @@ jobs:
           $raw=Invoke-RestMethod -Headers @{Authorization="Bearer $env:GITHUB_TOKEN";Accept='application/vnd.github.raw+json'} -Uri "https://api.github.com/repos/${env:GITHUB_REPOSITORY}/contents/.ci/r17h-sha.txt?ref=${env:GITHUB_SHA}"
           $sha=([string]$raw).Trim(); "sha=$sha">>$env:GITHUB_OUTPUT; Write-Host "REQUESTED_SOURCE_SHA=$sha"
       - uses: actions/checkout@v4
-        with:
-          repository: anbinn/Abin
-          ref: '${{ steps.sha.outputs.sha }}'
-          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
-          persist-credentials: false
+        with: { repository: anbinn/Abin, ref: '${{ steps.sha.outputs.sha }}', token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}', persist-credentials: false }
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: '10.0.x' }
       - name: Exact source build and natural production Search Enter x2
@@ -28,13 +24,7 @@ jobs:
         run: |
           $actual=(git rev-parse HEAD).Trim(); Write-Host "SOURCE_SHA=$actual"; if($actual-ne'${{ steps.sha.outputs.sha }}'){throw 'SHA mismatch'}
           @'
-          using System.Reflection;
-          namespace VideoDownloader.UI;
-          public sealed partial class V14DesignForm {
-            internal async Task R17HPrepareSourceAsync(string url)=>await LoadDetectedMediaSourceAsync(url);
-            internal string R17HState()=> $"page={_mediaCurrentPage.Kind} ready={_mediaRuntimeReady} handle={IsHandleCreated} disposed={IsDisposed} disposing={Disposing} source={_mediaCurrentSourceKind}";
-            internal void R17HEnter(string keyword){_mediaKeyword.Text=keyword;typeof(Control).GetMethod("OnKeyDown",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(_mediaKeyword,new object[]{new KeyEventArgs(Keys.Enter)});}
-          }
+          using System.Reflection; namespace VideoDownloader.UI; public sealed partial class V14DesignForm { internal async Task R17HPrepareSourceAsync(string url)=>await LoadDetectedMediaSourceAsync(url); internal string R17HState()=> $"page={_mediaCurrentPage.Kind} ready={_mediaRuntimeReady} handle={IsHandleCreated} disposed={IsDisposed} disposing={Disposing} source={_mediaCurrentSourceKind}"; internal void R17HEnter(string keyword){_mediaKeyword.Text=keyword;typeof(Control).GetMethod("OnKeyDown",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(_mediaKeyword,new object[]{new KeyEventArgs(Keys.Enter)});} }
           '@ | Set-Content 'UI/V14DesignForm.R17HCiProbe.cs' -Encoding utf8
           dotnet restore VideoDownloader.csproj; if($LASTEXITCODE-ne0){exit $LASTEXITCODE};dotnet build VideoDownloader.csproj -c Release --no-restore; if($LASTEXITCODE-ne0){exit $LASTEXITCODE}
           $out=(Resolve-Path 'bin\Release\net10.0-windows').Path;$mpv=Get-ChildItem $out -Filter 'libmpv-2.dll'|Select-Object -First 1;if(-not$mpv){throw 'T18_LIBMPV_RUNTIME=FAIL'};Write-Host "T18_LIBMPV_RUNTIME=READY:$($mpv.FullName)"
@@ -43,9 +33,8 @@ jobs:
           <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWindowsForms>true</UseWindowsForms><EnableWindowsTargeting>true</EnableWindowsTargeting><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup><ItemGroup><Reference Include="Abin"><HintPath>$out\阿斌视频下载器.dll</HintPath></Reference></ItemGroup></Project>
           "@ | Set-Content (Join-Path $runner 'R17HRunner.csproj') -Encoding utf8
           @'
-          using System.Diagnostics;using System.Reflection;using System.Windows.Forms;using VideoDownloader.UI;
-          static class Program {[STAThread] static void Main(string[] args){var keyword=args.Length>0?args[0]:"三体";var sw=Stopwatch.StartNew();void Log(string s)=>Console.WriteLine($"R17H {sw.ElapsedMilliseconds,6}ms {s}");AppDomain.CurrentDomain.UnhandledException+=(_,e)=>Log("APPDOMAIN_UNHANDLED="+e.ExceptionObject);TaskScheduler.UnobservedTaskException+=(_,e)=>Log("UNOBSERVED_TASK="+e.Exception);Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);ApplicationConfiguration.Initialize();var f=new V14DesignForm();var prep=typeof(V14DesignForm).GetMethod("R17HPrepareSourceAsync",BindingFlags.Instance|BindingFlags.NonPublic)!;var enter=typeof(V14DesignForm).GetMethod("R17HEnter",BindingFlags.Instance|BindingFlags.NonPublic)!;var state=typeof(V14DesignForm).GetMethod("R17HState",BindingFlags.Instance|BindingFlags.NonPublic)!;f.Shown+=async(_,_)=>{Log("FORM_SHOWN "+state.Invoke(f,null));try{Log("SOURCE_LOAD_START");await (Task)prep.Invoke(f,new object[]{"https://raw.githubusercontent.com/xiongjian83/TvBox/main/X.json"})!;Log("SOURCE_STABLE "+state.Invoke(f,null));Log("SEARCH_SUBMIT keyword="+keyword);enter.Invoke(f,new object[]{keyword});Log("ENTER_RETURN "+state.Invoke(f,null));await Task.Delay(30000);Log("NATURAL_30S_ALIVE "+state.Invoke(f,null));Environment.ExitCode=0;Application.Exit();}catch(Exception ex){Log("HARNESS_EXCEPTION="+(ex.InnerException??ex));Environment.ExitCode=70;Application.Exit();}};Application.Run(f);Log("MESSAGE_LOOP_EXIT code="+Environment.ExitCode);}}
+          using System.Diagnostics;using System.Reflection;using System.Windows.Forms;using VideoDownloader.UI; static class Program {[STAThread] static void Main(string[] args){var keyword=args.Length>0?args[0]:"三体";var sw=Stopwatch.StartNew();void Log(string s)=>Console.WriteLine($"R17H {sw.ElapsedMilliseconds,6}ms {s}");AppDomain.CurrentDomain.UnhandledException+=(_,e)=>Log("APPDOMAIN_UNHANDLED="+e.ExceptionObject);TaskScheduler.UnobservedTaskException+=(_,e)=>Log("UNOBSERVED_TASK="+e.Exception);Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);ApplicationConfiguration.Initialize();var f=new V14DesignForm();var prep=typeof(V14DesignForm).GetMethod("R17HPrepareSourceAsync",BindingFlags.Instance|BindingFlags.NonPublic)!;var enter=typeof(V14DesignForm).GetMethod("R17HEnter",BindingFlags.Instance|BindingFlags.NonPublic)!;var state=typeof(V14DesignForm).GetMethod("R17HState",BindingFlags.Instance|BindingFlags.NonPublic)!;f.Shown+=async(_,_)=>{Log("FORM_SHOWN "+state.Invoke(f,null));try{Log("SOURCE_LOAD_START");await (Task)prep.Invoke(f,new object[]{"https://raw.githubusercontent.com/xiongjian83/TvBox/main/X.json"})!;Log("SOURCE_STABLE "+state.Invoke(f,null));Log("SEARCH_SUBMIT keyword="+keyword);enter.Invoke(f,new object[]{keyword});Log("ENTER_RETURN "+state.Invoke(f,null));await Task.Delay(30000);Log("NATURAL_30S_ALIVE "+state.Invoke(f,null));Environment.ExitCode=0;Application.Exit();}catch(Exception ex){Log("HARNESS_EXCEPTION="+(ex.InnerException??ex));Environment.ExitCode=70;Application.Exit();}};Application.Run(f);Log("MESSAGE_LOOP_EXIT code="+Environment.ExitCode);}}
           '@ | Set-Content (Join-Path $runner 'Program.cs') -Encoding utf8
-          dotnet build (Join-Path $runner 'R17HRunner.csproj') -c Release; if($LASTEXITCODE-ne0){exit $LASTEXITCODE};$dll=Join-Path $runner 'bin\Release\net10.0-windows\R17HRunner.dll'
-          foreach($kw in @('三体','海绵宝宝')){Write-Host "=== NATURAL keyword=$kw ===";& dotnet $dll $kw;$code=$LASTEXITCODE;Write-Host "NATURAL_EXIT keyword=$kw code=$code";if($code-ne0){throw "natural run exited $code for $kw"}}
+          dotnet build (Join-Path $runner 'R17HRunner.csproj') -c Release -o $out; if($LASTEXITCODE-ne0){exit $LASTEXITCODE};$dll=Join-Path $out 'R17HRunner.dll'
+          Push-Location $out;try{foreach($kw in @('三体','海绵宝宝')){Write-Host "=== NATURAL keyword=$kw ===";& dotnet $dll $kw;$code=$LASTEXITCODE;Write-Host "NATURAL_EXIT keyword=$kw code=$code";if($code-ne0){throw "natural run exited $code for $kw"}}}finally{Pop-Location}
           Write-Host 'REAL_SEARCH_ENTER_PO_SEQUENCE=PASS';Write-Host 'SEARCH_NATURAL_PROCESS_EXIT_CAPTURE=PASS';Write-Host 'REAL_SEARCH_ENTER_CI_NON_REPRODUCIBLE=PASS'
