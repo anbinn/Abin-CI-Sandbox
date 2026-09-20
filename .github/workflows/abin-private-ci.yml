@@ -7,6 +7,11 @@ on:
         description: 'Exact private Abin commit SHA to validate'
         required: true
         default: '36bc6a5267cd33a4860a55132ba1444365d75300'
+  push:
+    branches: [ main ]
+    paths:
+      - '.ci/source-sha.txt'
+      - '.github/workflows/abin-private-ci.yml'
 
 permissions:
   contents: read
@@ -15,11 +20,28 @@ jobs:
   validate:
     runs-on: windows-latest
     steps:
+      - name: Resolve requested private source SHA
+        id: source
+        shell: pwsh
+        env:
+          DISPATCH_SHA: ${{ inputs.source_sha }}
+        run: |
+          $sha = $env:DISPATCH_SHA
+          if ([string]::IsNullOrWhiteSpace($sha)) {
+            $raw = Invoke-RestMethod -Headers @{ Authorization = "Bearer $env:GITHUB_TOKEN"; Accept = 'application/vnd.github.raw+json' } -Uri "https://api.github.com/repos/${env:GITHUB_REPOSITORY}/contents/.ci/source-sha.txt?ref=${env:GITHUB_SHA}"
+            $sha = ([string]$raw).Trim()
+          }
+          if ($sha -notmatch '^[0-9a-f]{40}$') { throw "Invalid SOURCE_SHA: '$sha'" }
+          "sha=$sha" >> $env:GITHUB_OUTPUT
+          Write-Host "REQUESTED_SOURCE_SHA=$sha"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
       - name: Checkout exact private Abin source
         uses: actions/checkout@v4
         with:
           repository: anbinn/Abin
-          ref: ${{ inputs.source_sha }}
+          ref: ${{ steps.source.outputs.sha }}
           token: ${{ secrets.ABIN_PRIVATE_READ_TOKEN }}
           persist-credentials: false
 
@@ -28,7 +50,7 @@ jobs:
         run: |
           $actual = (git rev-parse HEAD).Trim()
           Write-Host "SOURCE_SHA=$actual"
-          if ($actual -ne '${{ inputs.source_sha }}') { throw "Source SHA mismatch" }
+          if ($actual -ne '${{ steps.source.outputs.sha }}') { throw "Source SHA mismatch" }
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
