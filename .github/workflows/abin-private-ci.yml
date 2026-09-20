@@ -36,6 +36,64 @@ jobs:
           "sha=$sha" >> $env:GITHUB_OUTPUT
           Write-Host "REQUESTED_SOURCE_SHA=$sha"
 
+      - name: Real MacCMS source preflight
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          $base = 'https://cj.lziapi.com/api.php/provide/vod/'
+          function Get-Json([string]$uri) {
+            Invoke-RestMethod -Uri $uri -Method Get -TimeoutSec 20 -Headers @{ 'User-Agent'='Abin-CI-Preflight/1.0' }
+          }
+          try {
+            $list = Get-Json $base
+            if ($null -eq $list -or $null -eq $list.list) { throw 'HTTP/JSON response missing list' }
+            Write-Host 'TEST_SOURCE_PREFLIGHT_HTTP_JSON=PASS'
+
+            $keywords = @('三体','庆余年','凡人修仙传','哪吒')
+            $search = $null
+            $keyword = $null
+            foreach ($candidate in $keywords) {
+              $uri = $base + '?ac=detail&wd=' + [uri]::EscapeDataString($candidate)
+              $probe = Get-Json $uri
+              if ($probe.list -and @($probe.list).Count -gt 0) { $search=$probe; $keyword=$candidate; break }
+            }
+            if ($null -eq $search) { throw 'TEST_SOURCE_REJECTED: real keyword search returned no results' }
+            $hit = @($search.list)[0]
+            if ([string]::IsNullOrWhiteSpace([string]$hit.vod_id)) { throw 'TEST_SOURCE_REJECTED: search result missing vod_id' }
+            Write-Host "TEST_SOURCE_PREFLIGHT_SEARCH=PASS keyword=$keyword vod_id=$($hit.vod_id)"
+
+            $detail = Get-Json ($base + '?ac=detail&ids=' + [uri]::EscapeDataString([string]$hit.vod_id))
+            if (-not $detail.list -or @($detail.list).Count -eq 0) { throw 'TEST_SOURCE_REJECTED: detail returned no item' }
+            $vod = @($detail.list)[0]
+            if ([string]::IsNullOrWhiteSpace([string]$vod.vod_play_from) -or [string]::IsNullOrWhiteSpace([string]$vod.vod_play_url)) { throw 'TEST_SOURCE_REJECTED: detail missing play fields' }
+            Write-Host 'TEST_SOURCE_PREFLIGHT_DETAIL=PASS'
+
+            $flags = ([string]$vod.vod_play_from) -split '\$\$\$'
+            $lines = ([string]$vod.vod_play_url) -split '\$\$\$'
+            $selectedFlag = $null
+            $selectedEpisode = $null
+            for ($i=0; $i -lt [Math]::Min($flags.Count,$lines.Count); $i++) {
+              foreach ($entry in ($lines[$i] -split '#')) {
+                if ([string]::IsNullOrWhiteSpace($entry)) { continue }
+                $dollar = $entry.IndexOf('$')
+                $target = if ($dollar -ge 0) { $entry.Substring($dollar+1) } else { $entry }
+                if ($target -match '^https?://') { $selectedFlag=$flags[$i]; $selectedEpisode=$target; break }
+              }
+              if ($selectedEpisode) { break }
+            }
+            if (-not $selectedEpisode) { throw 'TEST_SOURCE_REJECTED: no real playable episode URL parsed from detail' }
+            Write-Host "TEST_SOURCE_PREFLIGHT_EPISODE=PASS flag=$selectedFlag"
+
+            $media = Invoke-WebRequest -Uri $selectedEpisode -Method Get -TimeoutSec 20 -MaximumRedirection 5 -Headers @{ 'User-Agent'='Abin-CI-Preflight/1.0' }
+            if ($media.StatusCode -lt 200 -or $media.StatusCode -ge 400) { throw "TEST_SOURCE_REJECTED: media target HTTP $($media.StatusCode)" }
+            if ([string]::IsNullOrWhiteSpace([string]$media.BaseResponse.ResponseUri)) { throw 'TEST_SOURCE_REJECTED: media target has no final URI' }
+            Write-Host 'TEST_SOURCE_PREFLIGHT_MEDIA_URL=PASS'
+          } catch {
+            Write-Host "TEST_SOURCE_PREFLIGHT_FAILURE=$($_.Exception.Message)"
+            throw
+          }
+
       - name: Checkout exact private Abin source
         uses: actions/checkout@v4
         with:
