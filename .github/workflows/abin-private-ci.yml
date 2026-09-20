@@ -25,6 +25,7 @@ jobs:
         shell: pwsh
         env:
           DISPATCH_SHA: ${{ inputs.source_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           $sha = $env:DISPATCH_SHA
           if ([string]::IsNullOrWhiteSpace($sha)) {
@@ -34,8 +35,6 @@ jobs:
           if ($sha -notmatch '^[0-9a-f]{40}$') { throw "Invalid SOURCE_SHA: '$sha'" }
           "sha=$sha" >> $env:GITHUB_OUTPUT
           Write-Host "REQUESTED_SOURCE_SHA=$sha"
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Checkout exact private Abin source
         uses: actions/checkout@v4
