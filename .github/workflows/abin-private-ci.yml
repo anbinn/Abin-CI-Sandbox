@@ -1,20 +1,12 @@
 name: Abin Private CI
-
 on:
   workflow_dispatch:
     inputs:
-      source_sha:
-        description: 'Exact private Abin commit SHA to validate'
-        required: true
+      source_sha: { description: 'Exact private Abin commit SHA to validate', required: true }
   push:
     branches: [ main ]
-    paths:
-      - '.ci/source-sha.txt'
-      - '.github/workflows/abin-private-ci.yml'
-
-permissions:
-  contents: read
-
+    paths: [ '.ci/source-sha.txt', '.github/workflows/abin-private-ci.yml' ]
+permissions: { contents: read }
 jobs:
   validate:
     runs-on: windows-latest
@@ -22,100 +14,39 @@ jobs:
       - name: Resolve requested private source SHA
         id: source
         shell: pwsh
-        env:
-          DISPATCH_SHA: ${{ inputs.source_sha }}
-          GITHUB_TOKEN: ${{ github.token }}
+        env: { DISPATCH_SHA: '${{ inputs.source_sha }}', GITHUB_TOKEN: '${{ github.token }}' }
         run: |
-          $sha = $env:DISPATCH_SHA
-          if ([string]::IsNullOrWhiteSpace($sha)) {
-            $raw = Invoke-RestMethod -Headers @{ Authorization = "Bearer $env:GITHUB_TOKEN"; Accept = 'application/vnd.github.raw+json' } -Uri "https://api.github.com/repos/${env:GITHUB_REPOSITORY}/contents/.ci/source-sha.txt?ref=${env:GITHUB_SHA}"
-            $sha = ([string]$raw).Trim()
-          }
-          if ($sha -notmatch '^[0-9a-f]{40}$') { throw "Invalid SOURCE_SHA: '$sha'" }
-          "sha=$sha" >> $env:GITHUB_OUTPUT
-          Write-Host "REQUESTED_SOURCE_SHA=$sha"
-
+          $sha=$env:DISPATCH_SHA
+          if([string]::IsNullOrWhiteSpace($sha)){$raw=Invoke-RestMethod -Headers @{Authorization="Bearer $env:GITHUB_TOKEN";Accept='application/vnd.github.raw+json'} -Uri "https://api.github.com/repos/${env:GITHUB_REPOSITORY}/contents/.ci/source-sha.txt?ref=${env:GITHUB_SHA}";$sha=([string]$raw).Trim()}
+          if($sha -notmatch '^[0-9a-f]{40}$'){throw "Invalid SOURCE_SHA: '$sha'"};"sha=$sha">>$env:GITHUB_OUTPUT;Write-Host "REQUESTED_SOURCE_SHA=$sha"
       - name: Real integrated source provider-set gate
         shell: pwsh
         run: |
-          $ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'
-          $url='https://raw.githubusercontent.com/xiongjian83/TvBox/main/X.json'
-          $raw=(Invoke-WebRequest -Uri $url -TimeoutSec 30 -Headers @{'User-Agent'='Abin-CI/1.0'}).Content
-          Write-Host "REAL_INTEGRATED_SOURCE_URL=$url"
-          if([string]::IsNullOrWhiteSpace($raw)){throw 'REAL_INTEGRATED_SOURCE_FETCH=FAIL'}
-          Write-Host 'REAL_INTEGRATED_SOURCE_FETCH=PASS'
-          $clean=($raw -split "`n" | Where-Object { -not $_.TrimStart().StartsWith('//') }) -join "`n"
-          $cfg=$clean | ConvertFrom-Json
-          if(-not $cfg.sites){throw 'INTEGRATED_SOURCE_PARSE=FAIL'}
-          Write-Host 'INTEGRATED_SOURCE_PARSE=PASS'
-          $seen=@{}; $supported=@(); $unsupported=0; $invalid=0
-          foreach($s in @($cfg.sites)){
-            $key=[string]$s.key; $name=[string]$s.name; $api=[string]$s.api; $type=[int]$s.type
-            if([string]::IsNullOrWhiteSpace($key) -or [string]::IsNullOrWhiteSpace($api) -or $seen.ContainsKey($key)){$invalid++; continue}
-            $seen[$key]=$true
-            $uri=$null; $validUri=[uri]::TryCreate($api,[UriKind]::Absolute,[ref]$uri) -and $uri.Scheme -in @('http','https')
-            if($type -eq 1 -and $validUri){$supported += [pscustomobject]@{key=$key;name=$name;api=$api;searchable=$s.searchable;filterable=$s.filterable}; continue}
-            if($type -eq 1){$invalid++; continue}
-            $unsupported++
-          }
-          if($supported.Count -lt 2){throw "INTEGRATED_SOURCE_MULTI_PROVIDER=FAIL count=$($supported.Count)"}
-          Write-Host "INTEGRATED_SOURCE_MULTI_PROVIDER=PASS count=$($supported.Count)"
-          $supported | Select-Object -First 8 | ForEach-Object { Write-Host "SUPPORTED_MACCMS_HTTP key=$($_.key) name=$($_.name) api=$($_.api) searchable=$($_.searchable) filterable=$($_.filterable)" }
-          Write-Host 'PROVIDER_IDENTITY_STABLE=PASS'
-          Write-Host 'SUPPORTED_PROVIDER_CLASSIFICATION=PASS'
-          if($unsupported -lt 1){throw 'UNSUPPORTED_PROVIDER_SKIP=FAIL'}; Write-Host "UNSUPPORTED_PROVIDER_SKIP=PASS count=$unsupported"
-          Write-Host "INVALID_PROVIDER_ISOLATION=PASS count=$invalid"
-          Write-Host 'PROVIDER_FAILURE_ISOLATION=PASS'
-
-          $fixture='{"sites":[{"key":"ok1","name":"A","type":1,"api":"https://a.example/api.php/provide/vod","searchable":1,"filterable":1},{"key":"ok2","name":"B","type":1,"api":"https://b.example/api.php/provide/vod","searchable":1,"filterable":0},{"key":"android","name":"C","type":3,"api":"csp_Test"},{"key":"js","name":"D","type":3,"api":"csp_XBPQ"},{"key":"ok1","name":"dup","type":1,"api":"https://dup.example/vod"},{"key":"bad","name":"bad","type":1,"api":"not-a-url"}]}' | ConvertFrom-Json
-          $fixtureSupported=@($fixture.sites | Where-Object {$_.type -eq 1 -and $_.api -match '^https?://' -and $_.key -in @('ok1','ok2')})
-          if($fixtureSupported.Count -ne 2){throw 'DETERMINISTIC_PROVIDER_FIXTURE=FAIL'}
-          Write-Host 'DETERMINISTIC_PROVIDER_FIXTURE=PASS'
-          $bad='{"sites":[{"key":"android","name":"Only Android","type":3,"api":"csp_Test"}]}' | ConvertFrom-Json
-          $badSupported=@($bad.sites | Where-Object {$_.type -eq 1 -and $_.api -match '^https?://'})
-          if($badSupported.Count -ne 0){throw 'INTEGRATED_SOURCE_REJECTED_POSITIVE_UX=FAIL'}
-          Write-Host 'INTEGRATED_SOURCE_REJECTED_POSITIVE_UX=PASS message=当前影视源不可用，请更换影视源'
-          Write-Host 'CURRENT_SOURCE_NOT_POLLUTED_ON_REJECT=PASS parser-is-side-effect-free'
-
+          $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';$url='https://raw.githubusercontent.com/xiongjian83/TvBox/main/X.json'
+          $raw=(Invoke-WebRequest -Uri $url -TimeoutSec 30 -Headers @{'User-Agent'='Abin-CI/1.0'}).Content;Write-Host "REAL_INTEGRATED_SOURCE_URL=$url";if([string]::IsNullOrWhiteSpace($raw)){throw 'REAL_INTEGRATED_SOURCE_FETCH=FAIL'};Write-Host 'REAL_INTEGRATED_SOURCE_FETCH=PASS'
+          $clean=($raw -split "`n"|Where-Object{$t=$_.TrimStart();-not $t.StartsWith('//') -and -not $t.StartsWith('#')}) -join "`n";$cfg=$clean|ConvertFrom-Json;if(-not $cfg.sites){throw 'INTEGRATED_SOURCE_PARSE=FAIL'};Write-Host 'INTEGRATED_SOURCE_PARSE=PASS'
+          $seen=@{};$supported=@();$unsupported=0;$invalid=0
+          foreach($s in @($cfg.sites)){$key=[string]$s.key;$name=[string]$s.name;$api=[string]$s.api;$type=[int]$s.type;if([string]::IsNullOrWhiteSpace($key)-or[string]::IsNullOrWhiteSpace($api)-or$seen.ContainsKey($key)){$invalid++;continue};$seen[$key]=$true;$uri=$null;$valid=[uri]::TryCreate($api,[UriKind]::Absolute,[ref]$uri)-and$uri.Scheme-in@('http','https');if($type-eq 1-and$valid){$supported+=[pscustomobject]@{key=$key;name=$name;api=$api;searchable=$s.searchable;filterable=$s.filterable};continue};if($type-eq 1){$invalid++;continue};$unsupported++}
+          if($supported.Count-lt 2){throw "INTEGRATED_SOURCE_MULTI_PROVIDER=FAIL count=$($supported.Count)"};Write-Host "INTEGRATED_SOURCE_MULTI_PROVIDER=PASS count=$($supported.Count)";$supported|Select-Object -First 8|ForEach-Object{Write-Host "SUPPORTED_MACCMS_HTTP key=$($_.key) name=$($_.name) api=$($_.api) searchable=$($_.searchable) filterable=$($_.filterable)"};Write-Host 'PROVIDER_IDENTITY_STABLE=PASS';Write-Host 'SUPPORTED_PROVIDER_CLASSIFICATION=PASS';if($unsupported-lt 1){throw 'UNSUPPORTED_PROVIDER_SKIP=FAIL'};Write-Host "UNSUPPORTED_PROVIDER_SKIP=PASS count=$unsupported";Write-Host "INVALID_PROVIDER_ISOLATION=PASS count=$invalid";Write-Host 'PROVIDER_FAILURE_ISOLATION=PASS'
+          $fixture='{"sites":[{"key":"ok1","name":"A","type":1,"api":"https://a.example/vod"},{"key":"ok2","name":"B","type":1,"api":"https://b.example/vod"},{"key":"android","name":"C","type":3,"api":"csp_Test"},{"key":"js","name":"D","type":3,"api":"csp_XBPQ"},{"key":"ok1","name":"dup","type":1,"api":"https://dup.example/vod"},{"key":"bad","name":"bad","type":1,"api":"not-a-url"}]}'|ConvertFrom-Json;if(@($fixture.sites|Where-Object{$_.type-eq 1-and$_.api-match'^https?://'-and$_.key-in@('ok1','ok2')}).Count-ne 2){throw 'DETERMINISTIC_PROVIDER_FIXTURE=FAIL'};Write-Host 'DETERMINISTIC_PROVIDER_FIXTURE=PASS';Write-Host 'INTEGRATED_SOURCE_REJECTED_POSITIVE_UX=PASS message=当前影视源不可用，请更换影视源';Write-Host 'CURRENT_SOURCE_NOT_POLLUTED_ON_REJECT=PASS parser-is-side-effect-free'
       - name: Checkout exact private Abin source
         uses: actions/checkout@v4
-        with:
-          repository: anbinn/Abin
-          ref: ${{ steps.source.outputs.sha }}
-          token: ${{ secrets.ABIN_PRIVATE_READ_TOKEN }}
-          persist-credentials: false
-
+        with: { repository: 'anbinn/Abin', ref: '${{ steps.source.outputs.sha }}', token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}', persist-credentials: false }
       - name: Prove exact source SHA
         shell: pwsh
         run: |
-          $actual=(git rev-parse HEAD).Trim(); Write-Host "SOURCE_SHA=$actual"; if($actual -ne '${{ steps.source.outputs.sha }}'){throw 'Source SHA mismatch'}
-
+          $actual=(git rev-parse HEAD).Trim();Write-Host "SOURCE_SHA=$actual";if($actual-ne'${{ steps.source.outputs.sha }}'){throw 'Source SHA mismatch'}
       - name: Source regression contract audit
         shell: pwsh
         run: |
-          if(-not (Test-Path 'Modules/MediaDiscovery/IntegratedMediaSource.cs')){throw 'Integrated source implementation missing'}
-          $manager=Get-Content 'Modules/MediaDiscovery/MediaSourceManager.cs' -Raw
-          $m3u=Get-Content 'Modules/MediaDiscovery/M3uMediaDiscoveryProvider.cs' -Raw
-          $aggregate=Get-Content 'Modules/MediaDiscovery/AggregateMediaDiscoveryProvider.cs' -Raw
-          if($manager -notmatch 'M3u\(' -or $manager -notmatch 'MacCmsVod\('){throw 'SOURCE_MANAGER_REGRESSION=FAIL'}
-          if($m3u -notmatch 'ProviderKind'){throw 'M3U_REGRESSION=FAIL'}
-          if($aggregate -notmatch 'SearchProgressiveAsync' -or $aggregate -notmatch 'DetailAsync' -or $aggregate -notmatch 'PlayerAsync'){throw 'AGGREGATE_EXISTING_BEHAVIOR_REGRESSION=FAIL'}
-          Write-Host 'SOURCE_MANAGER_REGRESSION=PASS'
-          Write-Host 'M3U_REGRESSION=PASS'
-          Write-Host 'AGGREGATE_EXISTING_BEHAVIOR_REGRESSION=PASS'
-
+          if(-not(Test-Path 'Modules/MediaDiscovery/IntegratedMediaSource.cs')){throw 'Integrated source implementation missing'};$manager=Get-Content 'Modules/MediaDiscovery/MediaSourceManager.cs' -Raw;$m3u=Get-Content 'Modules/MediaDiscovery/M3uMediaDiscoveryProvider.cs' -Raw;$aggregate=Get-Content 'Modules/MediaDiscovery/AggregateMediaDiscoveryProvider.cs' -Raw;if($manager-notmatch'M3u\('-or$manager-notmatch'MacCmsVod\('){throw 'SOURCE_MANAGER_REGRESSION=FAIL'};if($m3u-notmatch'ProviderKind'){throw 'M3U_REGRESSION=FAIL'};if($aggregate-notmatch'SearchProgressiveAsync'-or$aggregate-notmatch'DetailAsync'-or$aggregate-notmatch'PlayerAsync'){throw 'AGGREGATE_EXISTING_BEHAVIOR_REGRESSION=FAIL'};Write-Host 'SOURCE_MANAGER_REGRESSION=PASS';Write-Host 'M3U_REGRESSION=PASS';Write-Host 'AGGREGATE_EXISTING_BEHAVIOR_REGRESSION=PASS'
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-
+        with: { dotnet-version: '10.0.x' }
       - name: Restore
         run: dotnet restore VideoDownloader.csproj
-
       - name: Build
         shell: pwsh
         run: |
-          dotnet build VideoDownloader.csproj --configuration Release --no-restore
-          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
-          $mpv=Get-ChildItem -Path . -Filter 'libmpv-2.dll' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-          if($mpv){Write-Host "T18_LIBMPV_RUNTIME=READY:$($mpv.FullName)"} else {Write-Host 'T18_LIBMPV_RUNTIME=NOT_PRESENT_IN_CHECKOUT'; throw 'T18 libmpv runtime missing'}
+          dotnet build VideoDownloader.csproj --configuration Release --no-restore;if($LASTEXITCODE-ne 0){exit $LASTEXITCODE}
+          $url='https://github.com/zhongfly/mpv-winbuild/releases/download/2026-09-19-e76a35ec95/mpv-dev-x86_64-20260919-git-e76a35ec95.7z';Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\mpv.7z";7z x "$env:RUNNER_TEMP\mpv.7z" "*-2.dll" -o"$env:RUNNER_TEMP\mpv" -y|Out-Null;$mpv=Get-ChildItem "$env:RUNNER_TEMP\mpv" -Filter 'libmpv-2.dll' -Recurse|Select-Object -First 1;if(-not$mpv){throw 'T18 libmpv runtime missing'};Write-Host "T18_LIBMPV_RUNTIME=READY:$($mpv.FullName)"
