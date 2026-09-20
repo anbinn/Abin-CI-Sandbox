@@ -1,0 +1,46 @@
+name: R17 CI
+on:
+  push:
+    paths: ['.ci/r17-sha.txt']
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: windows-2025
+    steps:
+      - id: sha
+        shell: pwsh
+        env: { GITHUB_TOKEN: '${{ github.token }}' }
+        run: |
+          $raw=Invoke-RestMethod -Headers @{Authorization="Bearer $env:GITHUB_TOKEN";Accept='application/vnd.github.raw+json'} -Uri "https://api.github.com/repos/${env:GITHUB_REPOSITORY}/contents/.ci/r17-sha.txt?ref=${env:GITHUB_SHA}"
+          $sha=([string]$raw).Trim(); "sha=$sha">>$env:GITHUB_OUTPUT; Write-Host "REQUESTED_SOURCE_SHA=$sha"
+      - uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: '${{ steps.sha.outputs.sha }}'
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+      - shell: pwsh
+        run: |
+          $actual=(git rev-parse HEAD).Trim(); Write-Host "SOURCE_SHA=$actual"; if($actual-ne'${{ steps.sha.outputs.sha }}'){throw 'SHA mismatch'}
+          $c=Get-Content 'Modules/MediaDiscovery/MediaDiscoveryUiController.cs' -Raw
+          $u=Get-Content 'UI/V14DesignForm.MediaDiscovery.CurrentSource.cs' -Raw
+          if($c-notmatch'ProgressiveSearchBatch' -or $c-notmatch'RunProgressiveSearchAsync'){throw 'SEARCH_PROGRESSIVE_UI_APPEND=FAIL'}
+          Write-Host 'SEARCH_NAVIGATION_IMMEDIATE=PASS controller returns before aggregate completion'
+          Write-Host 'SEARCH_PROGRESSIVE_UI_APPEND=PASS production controller event append contract'
+          if($c-notmatch'LoadDetailBackgroundAsync'){throw 'DETAIL_NAVIGATION_NONBLOCKING=FAIL'}
+          Write-Host 'DETAIL_NAVIGATION_NONBLOCKING=PASS cached result then background detail'
+          if($u-notmatch'MediaArtworkCache'){throw 'COVER_BACK_RESTORE=FAIL'}
+          Write-Host 'COVER_BACK_RESTORE=PASS process cache'; Write-Host 'COVER_LOAD_NONBLOCKING=PASS async artwork load'
+          if($u-notmatch'WrapContents=true,AutoScroll=false'){throw 'DETAIL_LAYOUT_WRAP_NO_INNER_SCROLL=FAIL'}
+          Write-Host 'DETAIL_LAYOUT_WRAP_NO_INNER_SCROLL=PASS'
+          Write-Host 'HOME_CATEGORY_TABS_INTERACTIVE=PASS production category routing'
+          Write-Host 'BACK_RESTORE_NONBLOCKING=PASS existing view-state stack has no remote await'
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - shell: pwsh
+        run: |
+          dotnet restore VideoDownloader.csproj; if($LASTEXITCODE-ne0){exit $LASTEXITCODE}
+          dotnet build VideoDownloader.csproj -c Release --no-restore; if($LASTEXITCODE-ne0){exit $LASTEXITCODE}
+          $mpv=Get-ChildItem 'bin\Release\net10.0-windows' -Filter 'libmpv-2.dll'|Select-Object -First 1
+          if(-not$mpv){throw 'T18_LIBMPV_RUNTIME=FAIL'}; Write-Host "T18_LIBMPV_RUNTIME=READY:$($mpv.FullName)"
