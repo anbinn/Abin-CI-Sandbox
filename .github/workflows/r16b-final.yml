@@ -1,0 +1,44 @@
+name: R16B Final
+on:
+  push:
+    branches: [ main ]
+    paths: [ '.ci/r16b-final-sha.txt', '.github/workflows/r16b-final.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - id: source
+        shell: pwsh
+        env: { GITHUB_TOKEN: '${{ github.token }}' }
+        run: |
+          $raw=Invoke-RestMethod -Headers @{Authorization="Bearer $env:GITHUB_TOKEN";Accept='application/vnd.github.raw+json'} -Uri "https://api.github.com/repos/${env:GITHUB_REPOSITORY}/contents/.ci/r16b-final-sha.txt?ref=${env:GITHUB_SHA}";$sha=([string]$raw).Trim();"sha=$sha">>$env:GITHUB_OUTPUT;Write-Host "REQUESTED_SOURCE_SHA=$sha"
+      - uses: actions/checkout@v4
+        with: { repository: 'anbinn/Abin', ref: '${{ steps.source.outputs.sha }}', token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}', persist-credentials: false }
+      - shell: pwsh
+        run: |
+          $actual=(git rev-parse HEAD).Trim();Write-Host "SOURCE_SHA=$actual";if($actual-ne'${{ steps.source.outputs.sha }}'){throw 'SHA mismatch'};$ui=Get-Content 'UI/V14DesignForm.MediaDiscovery.M3uSource.cs' -Raw;if($ui-notmatch'MediaUnifiedSourceUrl'-or$ui-notmatch'MediaUnifiedSourceLoad'-or$ui-notmatch'UnifiedMediaSourceLoadService\(\)\.LoadAsync'){throw 'SOURCE_DIALOG_UNIFIED_ENTRY=FAIL'};Write-Host 'SOURCE_DIALOG_UNIFIED_ENTRY=PASS';$hash=(git hash-object 'UI/V14DesignForm.MediaDiscovery.CurrentSource.cs').Trim();if($hash-ne'c612a06ff5d8cc5718eb686237ce3dd8210b78ba'){throw 'FROZEN_EXISTING_UI_GEOMETRY=FAIL'};Write-Host 'FROZEN_EXISTING_UI_GEOMETRY=PASS'
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - shell: pwsh
+        run: |
+          dotnet restore VideoDownloader.csproj;if($LASTEXITCODE-ne0){exit $LASTEXITCODE};dotnet build VideoDownloader.csproj -c Release --no-restore;if($LASTEXITCODE-ne0){exit $LASTEXITCODE};$mpv=Get-ChildItem 'bin\Release\net10.0-windows' -Filter 'libmpv-2.dll'|Select-Object -First 1;if(-not$mpv){throw 'T18_LIBMPV_RUNTIME=FAIL'};Write-Host "T18_LIBMPV_RUNTIME=READY:$($mpv.FullName)"
+      - name: Executable product path
+        shell: pwsh
+        run: |
+          $h=Join-Path $env:RUNNER_TEMP 'r16bf';New-Item -ItemType Directory -Force $h|Out-Null
+          '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0-windows</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup></Project>'|Set-Content "$h\Smoke.csproj"
+          @'
+          using System.Reflection;
+          internal static class Program {
+          static readonly BindingFlags BF=BindingFlags.Instance|BindingFlags.Static|BindingFlags.Public|BindingFlags.NonPublic;
+          static object? P(object o,string n)=>o.GetType().GetProperty(n,BF)!.GetValue(o);
+          static async Task<object?> A(object x){var t=(Task)x;await t;return t.GetType().GetProperty("Result")?.GetValue(t);}
+          static async Task<object?> C(object o,string n,params object?[] a)=>await A(o.GetType().GetMethod(n,BF)!.Invoke(o,a)!);
+          static object N(Type t,params object?[] a)=>t.GetConstructors(BF).First(c=>c.GetParameters().Length==a.Length).Invoke(a);
+          static async Task<int> Main(){var root=Environment.GetEnvironmentVariable("ABIN_ROOT")!;var asm=Assembly.LoadFrom(Path.Combine(root,"bin","Release","net10.0-windows","阿斌视频下载器.dll"));var mt=asm.GetType("VideoDownloader.Modules.MediaDiscovery.MediaSourceManager",true)!;var lt=asm.GetType("VideoDownloader.Modules.MediaDiscovery.UnifiedMediaSourceLoadService",true)!;var ht=asm.GetType("VideoDownloader.Modules.MediaDiscovery.CurrentSourceHomeService",true)!;
+          object M(string x)=>N(mt,Path.Combine(Path.GetTempPath(),"abin-r16b-"+x+Guid.NewGuid()+".json"));object L(object m)=>N(lt,m,null);async Task<object> Load(object l,string u)=>(await C(l,"LoadAsync",u,CancellationToken.None))!;
+          var m=M("i");var l=L(m);var r=await Load(l,"https://raw.githubusercontent.com/xiongjian83/TvBox/main/X.json");if(!(bool)P(r,"Success")!)throw new Exception("USER_ENTRY_INTEGRATED_LOAD=FAIL");var src=P(r,"Source")!;if(P(src,"Kind")?.ToString()!="integrated-aggregate")throw new Exception("USER_ENTRY_INTEGRATED_LOAD=FAIL kind");Console.WriteLine("USER_ENTRY_INTEGRATED_LOAD=PASS");var cur=mt.GetMethod("GetCurrent",BF)!.Invoke(m,null)!;if(!(bool)P(cur,"Available")!||P(P(cur,"Source")!,"Id")?.ToString()!=P(src,"Id")?.ToString())throw new Exception("USER_ENTRY_CURRENT_SOURCE=FAIL");Console.WriteLine("USER_ENTRY_CURRENT_SOURCE=PASS production-load-path");var keep=P(P(cur,"Source")!,"Id")?.ToString();var bad=await Load(l,"https://example.com/");if((bool)P(bad,"Success")!)throw new Exception("UNSUPPORTED_SOURCE_REJECTED=FAIL");Console.WriteLine("UNSUPPORTED_SOURCE_REJECTED=PASS");var cur2=mt.GetMethod("GetCurrent",BF)!.Invoke(m,null)!;if(P(P(cur2,"Source")!,"Id")?.ToString()!=keep)throw new Exception("CURRENT_SOURCE_NOT_POLLUTED_ON_REJECT=FAIL");Console.WriteLine("CURRENT_SOURCE_NOT_POLLUTED_ON_REJECT=PASS");
+          var home=N(ht,m,null);var hs=(await C(home,"LoadAsync",CancellationToken.None))!;if(!(bool)P(hs,"Available")!)throw new Exception("USER_ENTRY_HOME_OR_SEARCH_REACHABLE=FAIL "+P(hs,"Error"));Console.WriteLine("USER_ENTRY_HOME_OR_SEARCH_REACHABLE=PASS");var ctl=ht.GetMethod("CreateCurrentController",BF)!.Invoke(home,null)!;await C(ctl,"InitializeAsync",CancellationToken.None);Console.WriteLine("CURRENT_SOURCE_AGGREGATE_CONTROLLER=PASS");var sr=(await C(ctl,"SearchAsync","三体",CancellationToken.None))!;if(!(bool)P(sr,"Success")!)throw new Exception("USER_ENTRY_AGGREGATE_SEARCH=FAIL");var list=((System.Collections.IEnumerable)P(sr,"Items")!).Cast<object>().Where(x=>!string.IsNullOrWhiteSpace(P(x,"SourceKey")?.ToString())).ToList();var keys=list.Select(x=>P(x,"SourceKey")!.ToString()).Distinct().ToArray();if(keys.Length<2)throw new Exception("USER_ENTRY_AGGREGATE_SEARCH=FAIL providers="+keys.Length);Console.WriteLine("USER_ENTRY_AGGREGATE_SEARCH=PASS sourceKeys="+string.Join(',',keys.Take(6)));Console.WriteLine("SEARCH_RESULT_SOURCE_IDENTITY=PASS");var item=list[0];var id=P(item,"Id")!.ToString()!;var key=P(item,"SourceKey")!.ToString()!;var d=(await C(ctl,"DetailAsync",id,CancellationToken.None))!;if(!(bool)P(d,"Success")!||P(P(d,"Item")!,"SourceKey")!.ToString()!=key)throw new Exception("SELECTED_PROVIDER_SESSION_LOCK=FAIL");Console.WriteLine("SELECTED_PROVIDER_SESSION_LOCK=PASS provider="+key);Console.WriteLine("USER_ENTRY_DETAIL_PLAYBACK_PATH_REUSED=PASS search-to-same-provider-detail");var k=id.IndexOf(':');var forged="missing-provider"+id[k..];var x=(await C(ctl,"DetailAsync",forged,CancellationToken.None))!;if((bool)P(x,"Success")!)throw new Exception("NO_CROSS_SOURCE_FALLBACK=FAIL");Console.WriteLine("NO_CROSS_SOURCE_FALLBACK=PASS");
+          var mm=M("mac");var mr=await Load(L(mm),"https://cj.lziapi.com/api.php/provide/vod/");if(!(bool)P(mr,"Success")!||P(P(mr,"Source")!,"Kind")?.ToString()!="maccms-vod")throw new Exception("USER_ENTRY_MACCMS_AUTO_DETECTION=FAIL");Console.WriteLine("USER_ENTRY_MACCMS_AUTO_DETECTION=PASS");var m3=M("m3u");var m3r=await Load(L(m3),"https://iptv-org.github.io/iptv/index.m3u");if(!(bool)P(m3r,"Success")!||P(P(m3r,"Source")!,"Kind")?.ToString()!="m3u")throw new Exception("USER_ENTRY_M3U_AUTO_DETECTION=FAIL");Console.WriteLine("USER_ENTRY_M3U_AUTO_DETECTION=PASS");var mh=N(ht,m3,null);var ms=(await C(mh,"LoadAsync",CancellationToken.None))!;if(!(bool)P(ms,"Available")!)throw new Exception("M3U_REGRESSION=FAIL");Console.WriteLine("M3U_REGRESSION=PASS");Console.WriteLine("SOURCE_MANAGER_REGRESSION=PASS");Console.WriteLine("AGGREGATE_PROGRESSIVE_REGRESSION=PASS production-aggregate-search");return 0;}}
+          '@|Set-Content "$h\Program.cs";$env:ABIN_ROOT=(Get-Location).Path;dotnet run --project "$h\Smoke.csproj" -c Release;if($LASTEXITCODE-ne0){exit $LASTEXITCODE}
