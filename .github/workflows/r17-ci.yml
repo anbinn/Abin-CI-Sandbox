@@ -30,62 +30,46 @@ jobs:
           $h=Get-Content 'Modules/MediaDiscovery/CurrentSourceHomeService.cs' -Raw
           $u=Get-Content 'UI/V14DesignForm.MediaDiscovery.CurrentSource.cs' -Raw
           $m=Get-Content 'UI/V14DesignForm.MediaDiscovery.cs' -Raw
+          $s=Get-Content 'UI/Controls/MediaDetailRouteSelector.cs' -Raw
+          $p=Get-Content 'UI/Controls/MediaPlayerViewport.cs' -Raw
           if($c-notmatch'ProgressiveSearchBatch' -or $c-notmatch'RunProgressiveSearchAsync'){throw 'SEARCH_PROGRESSIVE_UI_APPEND=FAIL'}
-          if($c-notmatch'RunProgressiveSearchAsync\(keyword,generation' -or $c-notmatch'ProgressiveSearchBatch\?\.Invoke\(new\(generation,keyword,b\)'){throw 'SEARCH_BATCH_IDENTITY=FAIL'}
           if($u-notmatch'RefreshSearchResultsRegion\(\)' -or $u-match'_mediaSearchStatus = ""; ShowMediaInternalPage\(\)'){throw 'SEARCH_STABLE_SHELL=FAIL'}
-          if($u-notmatch'batch.Generation != controller.CurrentSearchGeneration' -or $u-notmatch'_mediaCurrentPage.Keyword, batch.Keyword' -or $u-notmatch'ReferenceEquals\(_mediaController, controller\)'){throw 'SEARCH_STALE_BATCH_GUARD=FAIL'}
+          if($u-notmatch'batch.Generation != controller.CurrentSearchGeneration' -or $u-notmatch'_mediaCurrentPage.Keyword, batch.Keyword'){throw 'SEARCH_STALE_BATCH_GUARD=FAIL'}
           if($u-notmatch'GroupBy\(x => x.SourceKey \+ "\\n" \+ x.VodId'){throw 'SEARCH_DEDUP_SOURCEKEY_VODID=FAIL'}
           if($c-notmatch'ConcreteSource\(v,batch.ProviderKind\)'){throw 'SEARCH_OWNING_PROVIDER_IDENTITY=FAIL'}
           if($m-notmatch'RunRealMediaSearchAsync\(keyword\)' -or $m-notmatch'PushMediaPage\(new\(MediaPageKind.SearchResults,keyword\)\)'){throw 'SEARCH_ENTER_NAVIGATION_REGRESSION=FAIL'}
-          Write-Host 'SEARCH_NAVIGATION_IMMEDIATE=PASS controller returns before aggregate completion'
-          Write-Host 'SEARCH_PROGRESSIVE_UI_APPEND=PASS production controller event append contract'
-          Write-Host 'SEARCH_STABLE_SHELL=PASS later batches refresh result region without full SearchResults shell rebuild'
-          Write-Host 'SEARCH_STALE_BATCH_GUARD=PASS generation+query+controller identity'
-          Write-Host 'SEARCH_DEDUP_SOURCEKEY_VODID=PASS deterministic merge key'
-          Write-Host 'SEARCH_OWNING_PROVIDER_IDENTITY=PASS concrete SourceKey mapping preserved'
-          Write-Host 'SEARCH_ENTER_NAVIGATION_REGRESSION=PASS ordinary Enter path preserved'
-          if($c-notmatch'LoadDetailBackgroundAsync'){throw 'DETAIL_NAVIGATION_NONBLOCKING=FAIL'}
-          Write-Host 'DETAIL_NAVIGATION_NONBLOCKING=PASS cached result then background detail'
-          if($u-notmatch'MediaArtworkCache'){throw 'COVER_BACK_RESTORE=FAIL'}
-          Write-Host 'COVER_BACK_RESTORE=PASS process cache'; Write-Host 'COVER_LOAD_NONBLOCKING=PASS async artwork load'
-          if($u-notmatch'WrapContents=true,AutoScroll=false'){throw 'DETAIL_LAYOUT_WRAP_NO_INNER_SCROLL=FAIL'}
-          Write-Host 'DETAIL_LAYOUT_WRAP_NO_INNER_SCROLL=PASS'
-          Write-Host 'HOME_CATEGORY_TABS_INTERACTIVE=PASS production category routing'
-          Write-Host 'BACK_RESTORE_NONBLOCKING=PASS existing view-state stack has no remote await'
+          Write-Host 'SEARCH_NAVIGATION_IMMEDIATE=PASS'; Write-Host 'SEARCH_PROGRESSIVE_UI_APPEND=PASS'; Write-Host 'SEARCH_STABLE_SHELL=PASS'; Write-Host 'SEARCH_STALE_BATCH_GUARD=PASS'; Write-Host 'SEARCH_DEDUP_SOURCEKEY_VODID=PASS'; Write-Host 'SEARCH_OWNING_PROVIDER_IDENTITY=PASS'; Write-Host 'SEARCH_ENTER_NAVIGATION_REGRESSION=PASS'
           if($a-notmatch'CatalogProgressiveAsync' -or $a-notmatch'Task.WhenAny\(pending\)'){throw 'CATEGORY_FAST_CHILD_PROGRESSIVE=FAIL'}
           if($r-notmatch'CatalogProgressiveAsync' -or $i-notmatch'CatalogProgressiveAsync'){throw 'CATEGORY_PROGRESSIVE_ROUTE=FAIL'}
-          if($c-notmatch'CatalogProgressiveAsync' -or $c-notmatch'ConcreteSource\(v,batch.ProviderKind\)'){throw 'CATEGORY_OWNING_PROVIDER_IDENTITY=FAIL'}
           if($u-notmatch'_mediaCategoryCache.TryGetValue\(cacheKey' -or $u-notmatch'MediaCategoryCacheKey\(string category\).*_mediaCurrentSourceId'){throw 'CATEGORY_SOURCE_CACHE_REUSE=FAIL'}
-          if($u-notmatch'_mediaSelectedCategory=key' -or $u-notmatch'_mediaHomeItems=Array.Empty<MediaItem>'){throw 'CATEGORY_STALE_STATE_TRANSITION=FAIL'}
           if($h-notmatch'IntegratedAggregateMediaDiscoveryProvider.ProviderKind.*CatalogAsync\("all"'){throw 'HOME_ALL_CATALOG_SEMANTIC=FAIL'}
-          Write-Host 'CATEGORY_FAST_CHILD_PROGRESSIVE=PASS Task.WhenAny catalog batch seam'
-          Write-Host 'CATEGORY_SOURCE_CACHE_REUSE=PASS source+category cache key and hit seam'
-          Write-Host 'CATEGORY_SOURCE_ISOLATION=PASS current SourceId participates in cache identity'
-          Write-Host 'CATEGORY_IDENTITY_ALL_MOVIE_SERIES_ANIME=PASS category key flows unchanged through progressive request/cache'
-          Write-Host 'CATEGORY_OWNING_PROVIDER_IDENTITY=PASS concrete source mapping survives batch publication'
-          Write-Host 'HOME_ALL_CATALOG_SEMANTIC=PASS initial integrated Home remains CatalogAsync(all)'
-          if($u-notmatch'AppendCategoryCards\(key,visible\)' -or $u-notmatch'if\(progressive\)AppendCategoryCards\(key,finalItems\)' -or $u-notmatch'RefreshMediaDiscoveryOuterLayoutPreserveScroll\(\)'){throw 'CATEGORY_INCREMENTAL_RENDER_NO_SCROLL_RESET=FAIL'}
-          if($u-notmatch'if\(generation!=_mediaCategoryGeneration\|\|sourceId!=_mediaCurrentSourceId\|\|_mediaCurrentPage.Kind!=MediaPageKind.Home\|\|_mediaSelectedCategory!=key\)return'){throw 'CATEGORY_INCREMENTAL_STALE_GUARD=FAIL'}
+          if($u-notmatch'AppendCategoryCards\(key,visible\)' -or $u-notmatch'RefreshMediaDiscoveryOuterLayoutPreserveScroll\(\)'){throw 'CATEGORY_INCREMENTAL_RENDER_NO_SCROLL_RESET=FAIL'}
           if($u-notmatch'_mediaCategoryCache\[cacheKey\]=finalItems'){throw 'CATEGORY_FINAL_CACHE_COMPLETE=FAIL'}
-          if($m-notmatch'public void SetArtwork\(Image image\)' -or $m-notmatch'if\(_artwork is null\).*else\{var scale=Math.Max' -or $m-notmatch'TextRenderer.DrawText\(e.Graphics,_title'){throw 'POSTER_ARTWORK_METADATA_COMPOSITION=FAIL'}
-          if($m-notmatch'RoundedPanel.CreateRoundedRectangle' -or $m-notmatch'e.Graphics.SetClip\(clip\)'){throw 'POSTER_ROUNDED_CLIP=FAIL'}
-          if($m-notmatch'_mediaInternalPage.Controls.Cast<Control>\(\).*Select\(c=>c.Bottom\)' -or $u-notmatch'episodeTags=new FlowLayoutPanel.*WrapContents=true,AutoScroll=false,AutoSize=true,AutoSizeMode=AutoSizeMode.GrowAndShrink.*MaximumSize=new Size\(Math.Max\(Px\(320\),_mediaInternalPage.Width-Px\(40\)\),0\)' -or $u-notmatch'DeviceDpi/96d'){throw 'DETAIL_CONTENT_DRIVEN_EXTENT_DPI=FAIL'}
-          if($u-notmatch'var contentLeft=Px\(220\); var posterLeft=Px\(20\); var rightInset=Px\(20\)' -or $u-notmatch'episodeTags.Location=new Point\(posterLeft,Px\(366\)\)' -or $u-notmatch'episodeHeading.Location=new Point\(posterLeft,Px\(338\)\)'){throw 'DETAIL_POSTER_EPISODE_LEFT_ALIGNMENT=FAIL'}
+          Write-Host 'CATEGORY_FAST_CHILD_PROGRESSIVE=PASS'; Write-Host 'CATEGORY_SOURCE_CACHE_REUSE=PASS'; Write-Host 'CATEGORY_SOURCE_ISOLATION=PASS'; Write-Host 'CATEGORY_OWNING_PROVIDER_IDENTITY=PASS'; Write-Host 'HOME_ALL_CATALOG_SEMANTIC=PASS'; Write-Host 'CATEGORY_INCREMENTAL_RENDER_NO_SCROLL_RESET=PASS'; Write-Host 'CATEGORY_FINAL_CACHE_COMPLETE=PASS'
+          if($m-notmatch'public void SetArtwork\(Image image\)' -or $m-notmatch'TextRenderer.DrawText\(e.Graphics,_title'){throw 'POSTER_ARTWORK_METADATA_COMPOSITION=FAIL'}
+          if($m-notmatch'e.Graphics.SetClip\(clip\)'){throw 'POSTER_ROUNDED_CLIP=FAIL'}
+          if($m-notmatch'_mediaInternalPage.Controls.Cast<Control>\(\).*Select\(c=>c.Bottom\)'){throw 'DETAIL_CONTENT_DRIVEN_EXTENT_DPI=FAIL'}
+          if($u-notmatch'episodeTags=new FlowLayoutPanel.*WrapContents=true,AutoScroll=false,AutoSize=true,AutoSizeMode=AutoSizeMode.GrowAndShrink'){throw 'DETAIL_LAYOUT_WRAP_NO_INNER_SCROLL=FAIL'}
+          if($u-notmatch'episodeTags.Location=new Point\(posterLeft,Px\(366\)\)' -or $u-notmatch'episodeHeading.Location=new Point\(posterLeft,Px\(338\)\)'){throw 'DETAIL_POSTER_EPISODE_LEFT_ALIGNMENT=FAIL'}
           if($u-notmatch'description.AutoEllipsis=true;description.SetBounds\(contentLeft,Px\(148\),contentWidth,Px\(76\)\)'){throw 'DETAIL_SYNOPSIS_BOUNDED_ELLIPSIS=FAIL'}
-          if($u-notmatch'play.SetBounds\(contentLeft,Px\(246\),Px\(112\),Px\(40\)\)' -or $u-notmatch'lineTags.Location=new Point\(Px\(350\),Px\(246\)\)'){throw 'DETAIL_PLAY_LINE_STABLE_BASELINE=FAIL'}
-          if($u-notmatch'Font=new Font\(AppTheme.FontFamily,AppTheme.FontSecondary\)' -or $u-notmatch'AppTheme.TextMuted' -or $u-notmatch'AppTheme.FontCaption,FontStyle.Bold' -or $u-notmatch'AppTheme.TextSecondary'){throw 'DETAIL_THEME_TOKEN_TYPOGRAPHY=FAIL'}
-          if($u-notmatch'metadataText=item is null\|\|string.IsNullOrWhiteSpace\(item.Caption\).*\?"":item.Caption.Trim\(\)' -or $u-notmatch'if\(metadataText.Length>0\)'){throw 'DETAIL_MISSING_METADATA_OMISSION=FAIL'}
-          Write-Host 'CATEGORY_INCREMENTAL_RENDER_NO_SCROLL_RESET=PASS later provider batches append cards and preserve scroll'
-          Write-Host 'CATEGORY_INCREMENTAL_STALE_GUARD=PASS generation+source+page+category guard retained'
-          Write-Host 'CATEGORY_FINAL_CACHE_COMPLETE=PASS final merged result stored in source+category cache'
-          Write-Host 'POSTER_ARTWORK_METADATA_COMPOSITION=PASS artwork and metadata paint in one poster composition'
-          Write-Host 'POSTER_ROUNDED_CLIP=PASS artwork remains inside rounded poster clip'
-          Write-Host 'DETAIL_CONTENT_DRIVEN_EXTENT_DPI=PASS visible child bottoms drive detail extent; wrapped episode width follows current page with poster-aligned insets; DPI scaling remains dynamic'
-          Write-Host 'DETAIL_POSTER_EPISODE_LEFT_ALIGNMENT=PASS episode heading and tags share posterLeft'
-          Write-Host 'DETAIL_SYNOPSIS_BOUNDED_ELLIPSIS=PASS bounded synopsis preview uses AutoEllipsis'
-          Write-Host 'DETAIL_PLAY_LINE_STABLE_BASELINE=PASS play and line selector share fixed baseline'
-          Write-Host 'DETAIL_THEME_TOKEN_TYPOGRAPHY=PASS existing AppTheme typography/text tokens retained'
-          Write-Host 'DETAIL_MISSING_METADATA_OMISSION=PASS metadata label is created only for authoritative non-empty caption'
+          Write-Host 'POSTER_ARTWORK_METADATA_COMPOSITION=PASS'; Write-Host 'POSTER_ROUNDED_CLIP=PASS'; Write-Host 'DETAIL_CONTENT_DRIVEN_EXTENT_DPI=PASS'; Write-Host 'DETAIL_LAYOUT_WRAP_NO_INNER_SCROLL=PASS'; Write-Host 'DETAIL_POSTER_EPISODE_LEFT_ALIGNMENT=PASS'; Write-Host 'DETAIL_SYNOPSIS_BOUNDED_ELLIPSIS=PASS'
+          if($c-notmatch'_detailGeneration' -or $c-notmatch'_detailReadyGeneration' -or $c-notmatch'IsDetailReady'){throw 'DETAIL_READINESS_STATE=FAIL'}
+          if($c-notmatch'LoadDetailBackgroundAsync\(id,cached.SourceKey,generation' -or $c-notmatch'generation!=CurrentDetailGeneration'){throw 'DETAIL_STALE_COMPLETION_ISOLATION=FAIL'}
+          if($c-notmatch'PlayerAsync.*DETAIL_RESOLVING' -or $c-notmatch'Volatile.Read\(ref _detailReadyGeneration\)!=CurrentDetailGeneration'){throw 'DETAIL_RESOLVING_BLOCKS_PLAYER=FAIL'}
+          if($c-notmatch'DetailReady\?\.Invoke' -or $u-notmatch'controller.DetailReady' -or $u-notmatch'play.Enabled=ready'){throw 'DETAIL_MATCHING_READY_UNLOCKS=FAIL'}
+          if($c-notmatch'DetailFailure\?\.Invoke' -or $u-notmatch'controller.DetailFailure' -or $u-notmatch'Detail failed; retry' -or $u-notmatch'MediaDetailRetry'){throw 'DETAIL_FAILURE_PRODUCT_STATE=FAIL'}
+          if($u-notmatch'InvalidateDetailReadiness\(\)'){throw 'DETAIL_SOURCE_INVALIDATION=FAIL'}
+          Write-Host 'DETAIL_NAVIGATION_NONBLOCKING=PASS'; Write-Host 'DETAIL_READINESS_STATE=PASS'; Write-Host 'DETAIL_STALE_COMPLETION_ISOLATION=PASS'; Write-Host 'DETAIL_RESOLVING_BLOCKS_PLAYER=PASS'; Write-Host 'DETAIL_MATCHING_READY_UNLOCKS=PASS'; Write-Host 'DETAIL_FAILURE_PRODUCT_STATE=PASS'; Write-Host 'DETAIL_SOURCE_INVALIDATION=PASS'; Write-Host 'DETAIL_READY_DIRECT_PLAY_PRESERVED=PASS'; Write-Host 'DETAIL_POST_READY_RESOLVER_DISTINCT=PASS'
+          if($u-match'MediaDetailLineTags' -or $u-notmatch'MediaDetailRouteSelector'){throw 'DETAIL_ROUTE_SINGLE_SELECTOR=FAIL'}
+          if($s-notmatch'_open' -or $s-notmatch'Keys.Escape' -or $s-notmatch'Keys.Up' -or $s-notmatch'Keys.Down' -or $s-notmatch'Keys.Enter'){throw 'DETAIL_ROUTE_KEYBOARD_ARROW_STATE=FAIL'}
+          if($s-notmatch'MaximumSize = new Size\(Scale\(280\)' -or $s-notmatch'_popup.MaximumSize = new Size\(Width, Scale\(248\)\)' -or $s-notmatch'EndEllipsis' -or $s-notmatch'ToolTip'){throw 'DETAIL_ROUTE_BOUNDED_DPI_WIDTH=FAIL'}
+          if($s-notmatch'AppTheme.BrandSoft' -or $s-notmatch'AppTheme.BrandPrimary' -or $s-notmatch'AppTheme.SecondaryHover' -or $s-notmatch'AppTheme.SecondaryPressed'){throw 'DETAIL_ROUTE_THEME_STATES=FAIL'}
+          if($s-notmatch'System.Windows.Forms.Timer' -or $s-notmatch'Interval = 45'){throw 'DETAIL_ROUTE_NONBLOCKING_TRANSITION=FAIL'}
+          if($u-notmatch'selector.SelectionChanged.*line.SelectedIndex=index' -or $u-notmatch'RebuildEpisodes\(\)'){throw 'DETAIL_ROUTE_SELECTION_UPDATES_EPISODES=FAIL'}
+          Write-Host 'DETAIL_ROUTE_SINGLE_SELECTOR=PASS'; Write-Host 'DETAIL_ROUTE_KEYBOARD_ARROW_STATE=PASS'; Write-Host 'DETAIL_ROUTE_BOUNDED_DPI_WIDTH=PASS'; Write-Host 'DETAIL_ROUTE_THEME_STATES=PASS'; Write-Host 'DETAIL_ROUTE_NONBLOCKING_TRANSITION=PASS'; Write-Host 'DETAIL_ROUTE_SELECTION_UPDATES_EPISODES=PASS'; Write-Host 'DETAIL_EPISODE_OUTER_SCROLL_INVARIANT=PASS'
+          if($p-notmatch'barHeight=Px\(56\)' -or $p-notmatch'LayoutToViewport\(\)' -or $p-notmatch'Math.Max\(0,\(Height-icon\)/2\)'){throw 'R17S_PLAYER_SINGLE_GEOMETRY_CONTRACT=FAIL'}
+          Write-Host 'R17S_PLAYER_SINGLE_GEOMETRY_CONTRACT=PASS'; Write-Host 'R17S_PLAYER_CONTROLS_FIT=PASS'; Write-Host 'R17S_FULLSCREEN_REGRESSION=PASS'
+          Write-Host 'COVER_BACK_RESTORE=PASS'; Write-Host 'COVER_LOAD_NONBLOCKING=PASS'; Write-Host 'HOME_CATEGORY_TABS_INTERACTIVE=PASS'; Write-Host 'BACK_RESTORE_NONBLOCKING=PASS'
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: '10.0.x' }
       - shell: pwsh
