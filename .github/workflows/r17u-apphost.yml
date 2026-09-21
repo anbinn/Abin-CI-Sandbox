@@ -32,25 +32,25 @@ jobs:
           $dll=Join-Path $out '阿斌视频下载器.dll'; $exe=Join-Path $out '阿斌视频下载器.exe'
           $deps=Join-Path $out '阿斌视频下载器.deps.json'; $rc=Join-Path $out '阿斌视频下载器.runtimeconfig.json'
           foreach($f in @($dll,$exe,$deps,$rc)){if(-not(Test-Path $f)){throw "APPHOST_ARTIFACT_MISSING=$f"}}
-          function Probe([string]$label,[string]$file,[string]$args=''){
+          function Probe([string]$label,[string]$file,[string[]]$args=@()){
             $env:COREHOST_TRACE='1'; $env:COREHOST_TRACEFILE=(Join-Path $env:RUNNER_TEMP "$label-host.txt"); $env:COREHOST_TRACE_VERBOSITY='4'
             $p=Start-Process -FilePath $file -ArgumentList $args -PassThru
             Start-Sleep -Seconds 4
             $alive=-not $p.HasExited; $code=if($p.HasExited){$p.ExitCode}else{$null}
             Write-Host "$label ALIVE=$alive EXIT=$code PID=$($p.Id)"
-            if(Test-Path $env:COREHOST_TRACEFILE){Get-Content $env:COREHOST_TRACEFILE | Select-Object -Last 80}
+            if(Test-Path $env:COREHOST_TRACEFILE){Get-Content $env:COREHOST_TRACEFILE | Select-Object -Last 40 | ForEach-Object { Write-Host $_ }}
             if($alive){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue}
-            return $alive
+            return [bool]$alive
           }
-          $managed=Probe 'MANAGED_DLL' 'dotnet' ('"'+$dll+'"')
-          $fdd=Probe 'FDD_EXE' $exe
+          [bool]$managed=Probe 'MANAGED_DLL' 'dotnet' @($dll)
+          [bool]$fdd=Probe 'FDD_EXE' $exe
           dotnet publish VideoDownloader.csproj -c Release -r win-x64 --self-contained true -o "$env:RUNNER_TEMP\r17u-publish"
           $scdExe=Join-Path $env:RUNNER_TEMP 'r17u-publish\阿斌视频下载器.exe'
           if(-not(Test-Path $scdExe)){throw 'SCD_EXE_MISSING'}
-          $scd=Probe 'SCD_EXE' $scdExe
-          $bytes=[IO.File]::ReadAllBytes($exe); $ascii=[Text.Encoding]::UTF8.GetBytes('阿斌视频下载器.dll');
-          function ContainsBytes($hay,$needle){for($x=0;$x-le$hay.Length-$needle.Length;$x++){ $ok=$true; for($y=0;$y-lt$needle.Length;$y++){if($hay[$x+$y]-ne$needle[$y]){$ok=$false;break}}; if($ok){return $true}}; return $false}
-          $binding=ContainsBytes $bytes $ascii; Write-Host "APPHOST_EMBEDDED_UTF8_DLL=$binding"
+          [bool]$scd=Probe 'SCD_EXE' $scdExe
+          $bytes=[IO.File]::ReadAllBytes($exe); $needle=[Text.Encoding]::UTF8.GetBytes('阿斌视频下载器.dll')
+          function ContainsBytes($hay,$n){for($x=0;$x-le$hay.Length-$n.Length;$x++){ $ok=$true; for($y=0;$y-lt$n.Length;$y++){if($hay[$x+$y]-ne$n[$y]){$ok=$false;break}}; if($ok){return $true}}; return $false}
+          [bool]$binding=ContainsBytes $bytes $needle; Write-Host "APPHOST_EMBEDDED_UTF8_DLL=$binding"
           if($managed){Write-Host 'APPHOST_MANAGED_DLL_STARTS=PASS'}else{Write-Host 'APPHOST_MANAGED_DLL_STARTS=FAIL'}
           if($fdd){Write-Host 'APPHOST_FDD_EXE_STARTS=PASS'}else{Write-Host 'APPHOST_FDD_EXE_STARTS=FAIL'}
           if($scd){Write-Host 'APPHOST_SCD_EXE_STARTS=PASS'}else{Write-Host 'APPHOST_SCD_EXE_STARTS=FAIL'}
