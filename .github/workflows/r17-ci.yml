@@ -69,13 +69,23 @@ jobs:
           if($u-notmatch'_mediaCategoryCache\[cacheKey\]=finalItems'){throw 'CATEGORY_FINAL_CACHE_COMPLETE=FAIL'}
           if($m-notmatch'public void SetArtwork\(Image image\)' -or $m-notmatch'if\(_artwork is null\).*else\{var scale=Math.Max' -or $m-notmatch'TextRenderer.DrawText\(e.Graphics,_title'){throw 'POSTER_ARTWORK_METADATA_COMPOSITION=FAIL'}
           if($m-notmatch'RoundedPanel.CreateRoundedRectangle' -or $m-notmatch'e.Graphics.SetClip\(clip\)'){throw 'POSTER_ROUNDED_CLIP=FAIL'}
-          if($m-notmatch'_mediaInternalPage.Controls.Cast<Control>\(\).*Select\(c=>c.Bottom\)' -or $u-notmatch'MaximumSize=new Size\(Math.Max\(Px\(320\),_mediaInternalPage.Width-Px\(100\)\),0\)' -or $u-notmatch'DeviceDpi/96d'){throw 'DETAIL_CONTENT_DRIVEN_EXTENT_DPI=FAIL'}
+          if($m-notmatch'_mediaInternalPage.Controls.Cast<Control>\(\).*Select\(c=>c.Bottom\)' -or $u-notmatch'episodeTags=new FlowLayoutPanel.*WrapContents=true,AutoScroll=false,AutoSize=true,AutoSizeMode=AutoSizeMode.GrowAndShrink.*MaximumSize=new Size\(Math.Max\(Px\(320\),_mediaInternalPage.Width-Px\(40\)\),0\)' -or $u-notmatch'DeviceDpi/96d'){throw 'DETAIL_CONTENT_DRIVEN_EXTENT_DPI=FAIL'}
+          if($u-notmatch'var contentLeft=Px\(220\); var posterLeft=Px\(20\); var rightInset=Px\(20\)' -or $u-notmatch'episodeTags.Location=new Point\(posterLeft,Px\(366\)\)' -or $u-notmatch'episodeHeading.Location=new Point\(posterLeft,Px\(338\)\)'){throw 'DETAIL_POSTER_EPISODE_LEFT_ALIGNMENT=FAIL'}
+          if($u-notmatch'description.AutoEllipsis=true;description.SetBounds\(contentLeft,Px\(148\),contentWidth,Px\(76\)\)'){throw 'DETAIL_SYNOPSIS_BOUNDED_ELLIPSIS=FAIL'}
+          if($u-notmatch'play.SetBounds\(contentLeft,Px\(246\),Px\(112\),Px\(40\)\)' -or $u-notmatch'lineTags.Location=new Point\(Px\(350\),Px\(246\)\)'){throw 'DETAIL_PLAY_LINE_STABLE_BASELINE=FAIL'}
+          if($u-notmatch'Font=new Font\(AppTheme.FontFamily,AppTheme.FontSecondary\)' -or $u-notmatch'AppTheme.TextMuted' -or $u-notmatch'AppTheme.FontCaption,FontStyle.Bold' -or $u-notmatch'AppTheme.TextSecondary'){throw 'DETAIL_THEME_TOKEN_TYPOGRAPHY=FAIL'}
+          if($u-notmatch'metadataText=item is null\|\|string.IsNullOrWhiteSpace\(item.Caption\).*\?"":item.Caption.Trim\(\)' -or $u-notmatch'if\(metadataText.Length>0\)'){throw 'DETAIL_MISSING_METADATA_OMISSION=FAIL'}
           Write-Host 'CATEGORY_INCREMENTAL_RENDER_NO_SCROLL_RESET=PASS later provider batches append cards and preserve scroll'
           Write-Host 'CATEGORY_INCREMENTAL_STALE_GUARD=PASS generation+source+page+category guard retained'
           Write-Host 'CATEGORY_FINAL_CACHE_COMPLETE=PASS final merged result stored in source+category cache'
           Write-Host 'POSTER_ARTWORK_METADATA_COMPOSITION=PASS artwork and metadata paint in one poster composition'
           Write-Host 'POSTER_ROUNDED_CLIP=PASS artwork remains inside rounded poster clip'
-          Write-Host 'DETAIL_CONTENT_DRIVEN_EXTENT_DPI=PASS visible child bottoms drive detail extent; wrap width and DPI scaling remain dynamic'
+          Write-Host 'DETAIL_CONTENT_DRIVEN_EXTENT_DPI=PASS visible child bottoms drive detail extent; wrapped episode width follows current page with poster-aligned insets; DPI scaling remains dynamic'
+          Write-Host 'DETAIL_POSTER_EPISODE_LEFT_ALIGNMENT=PASS episode heading and tags share posterLeft'
+          Write-Host 'DETAIL_SYNOPSIS_BOUNDED_ELLIPSIS=PASS bounded synopsis preview uses AutoEllipsis'
+          Write-Host 'DETAIL_PLAY_LINE_STABLE_BASELINE=PASS play and line selector share fixed baseline'
+          Write-Host 'DETAIL_THEME_TOKEN_TYPOGRAPHY=PASS existing AppTheme typography/text tokens retained'
+          Write-Host 'DETAIL_MISSING_METADATA_OMISSION=PASS metadata label is created only for authoritative non-empty caption'
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: '10.0.x' }
       - shell: pwsh
