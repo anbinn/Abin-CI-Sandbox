@@ -29,9 +29,21 @@ jobs:
           $i=Get-Content 'Modules/MediaDiscovery/IntegratedAggregateMediaDiscoveryProvider.cs' -Raw
           $h=Get-Content 'Modules/MediaDiscovery/CurrentSourceHomeService.cs' -Raw
           $u=Get-Content 'UI/V14DesignForm.MediaDiscovery.CurrentSource.cs' -Raw
+          $m=Get-Content 'UI/V14DesignForm.MediaDiscovery.cs' -Raw
           if($c-notmatch'ProgressiveSearchBatch' -or $c-notmatch'RunProgressiveSearchAsync'){throw 'SEARCH_PROGRESSIVE_UI_APPEND=FAIL'}
+          if($c-notmatch'RunProgressiveSearchAsync\(keyword,generation' -or $c-notmatch'ProgressiveSearchBatch\?\.Invoke\(new\(generation,keyword,b\)'){throw 'SEARCH_BATCH_IDENTITY=FAIL'}
+          if($u-notmatch'RefreshSearchResultsRegion\(\)' -or $u-match'_mediaSearchStatus = ""; ShowMediaInternalPage\(\)'){throw 'SEARCH_STABLE_SHELL=FAIL'}
+          if($u-notmatch'batch.Generation != controller.CurrentSearchGeneration' -or $u-notmatch'_mediaCurrentPage.Keyword, batch.Keyword' -or $u-notmatch'ReferenceEquals\(_mediaController, controller\)'){throw 'SEARCH_STALE_BATCH_GUARD=FAIL'}
+          if($u-notmatch'GroupBy\(x => x.SourceKey \+ "\\n" \+ x.VodId'){throw 'SEARCH_DEDUP_SOURCEKEY_VODID=FAIL'}
+          if($c-notmatch'ConcreteSource\(v,batch.ProviderKind\)'){throw 'SEARCH_OWNING_PROVIDER_IDENTITY=FAIL'}
+          if($m-notmatch'RunRealMediaSearchAsync\(keyword\)' -or $m-notmatch'PushMediaPage\(new\(MediaPageKind.SearchResults,keyword\)\)'){throw 'SEARCH_ENTER_NAVIGATION_REGRESSION=FAIL'}
           Write-Host 'SEARCH_NAVIGATION_IMMEDIATE=PASS controller returns before aggregate completion'
           Write-Host 'SEARCH_PROGRESSIVE_UI_APPEND=PASS production controller event append contract'
+          Write-Host 'SEARCH_STABLE_SHELL=PASS later batches refresh result region without full SearchResults shell rebuild'
+          Write-Host 'SEARCH_STALE_BATCH_GUARD=PASS generation+query+controller identity'
+          Write-Host 'SEARCH_DEDUP_SOURCEKEY_VODID=PASS deterministic merge key'
+          Write-Host 'SEARCH_OWNING_PROVIDER_IDENTITY=PASS concrete SourceKey mapping preserved'
+          Write-Host 'SEARCH_ENTER_NAVIGATION_REGRESSION=PASS ordinary Enter path preserved'
           if($c-notmatch'LoadDetailBackgroundAsync'){throw 'DETAIL_NAVIGATION_NONBLOCKING=FAIL'}
           Write-Host 'DETAIL_NAVIGATION_NONBLOCKING=PASS cached result then background detail'
           if($u-notmatch'MediaArtworkCache'){throw 'COVER_BACK_RESTORE=FAIL'}
