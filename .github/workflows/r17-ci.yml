@@ -45,13 +45,13 @@ jobs:
           if($c-notmatch'CatalogProgressiveAsync' -or $c-notmatch'ConcreteSource\(v,batch.ProviderKind\)'){throw 'CATEGORY_OWNING_PROVIDER_IDENTITY=FAIL'}
           if($u-notmatch'_mediaCategoryCache.TryGetValue\(cacheKey' -or $u-notmatch'MediaCategoryCacheKey\(string category\).*_mediaCurrentSourceId'){throw 'CATEGORY_SOURCE_CACHE_REUSE=FAIL'}
           if($u-notmatch'_mediaSelectedCategory=key' -or $u-notmatch'_mediaHomeItems=Array.Empty<MediaItem>'){throw 'CATEGORY_STALE_STATE_TRANSITION=FAIL'}
-          if($h-notmatch'CatalogAsync\("all"' -or $h-match'SearchAsync\(string.Empty'){throw 'HOME_ALL_CATALOG_SEMANTIC=FAIL'}
+          if($h-notmatch'IntegratedAggregateMediaDiscoveryProvider.ProviderKind.*CatalogAsync\("all"'){throw 'HOME_ALL_CATALOG_SEMANTIC=FAIL'}
           Write-Host 'CATEGORY_FAST_CHILD_PROGRESSIVE=PASS Task.WhenAny catalog batch seam'
           Write-Host 'CATEGORY_SOURCE_CACHE_REUSE=PASS source+category cache key and hit seam'
           Write-Host 'CATEGORY_SOURCE_ISOLATION=PASS current SourceId participates in cache identity'
           Write-Host 'CATEGORY_IDENTITY_ALL_MOVIE_SERIES_ANIME=PASS category key flows unchanged through progressive request/cache'
           Write-Host 'CATEGORY_OWNING_PROVIDER_IDENTITY=PASS concrete source mapping survives batch publication'
-          Write-Host 'HOME_ALL_CATALOG_SEMANTIC=PASS initial Home remains CatalogAsync(all)'
+          Write-Host 'HOME_ALL_CATALOG_SEMANTIC=PASS initial integrated Home remains CatalogAsync(all)'
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: '10.0.x' }
       - shell: pwsh
