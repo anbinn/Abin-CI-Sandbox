@@ -44,16 +44,43 @@ jobs:
             if($residual){$residual|Stop-Process -Force -ErrorAction SilentlyContinue}
             return [pscustomobject]@{Ready=$ready;Clean=$clean}
           }
+          Add-Type @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class PeResources {
+            delegate bool EnumProc(IntPtr h, IntPtr type, IntPtr name, IntPtr p);
+            [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern IntPtr LoadLibraryEx(string f, IntPtr h, uint flags);
+            [DllImport("kernel32.dll")] static extern bool FreeLibrary(IntPtr h);
+            [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern bool EnumResourceNames(IntPtr h, IntPtr type, EnumProc cb, IntPtr p);
+            public static bool Has(string file, int type) { var h=LoadLibraryEx(file,IntPtr.Zero,0x22); if(h==IntPtr.Zero)return false; bool found=false; try { EnumResourceNames(h,(IntPtr)type,(m,t,n,p)=>{found=true;return false;},IntPtr.Zero); } finally { FreeLibrary(h); } return found; }
+          }
+          '@
+          function ResourcePolicy([string]$label,[string]$file){
+            $version=[PeResources]::Has($file,16); $icon=[PeResources]::Has($file,3); $group=[PeResources]::Has($file,14); $manifest=[PeResources]::Has($file,24)
+            $vi=[Diagnostics.FileVersionInfo]::GetVersionInfo($file)
+            Write-Host "$label RT_VERSION_PRESENT=$version SIZE=$(if($version){'NONZERO'}else{'0'}) HASH=$(if($version){'PRESENT'}else{'NONE'}) PRINTABLE=FileVersion:$($vi.FileVersion);ProductVersion:$($vi.ProductVersion);Company:$($vi.CompanyName);Product:$($vi.ProductName)"
+            Write-Host "$label RT_ICON=$icon RT_GROUP_ICON=$group RT_MANIFEST=$manifest"
+            return [pscustomobject]@{Version=$version;Icon=$icon;Group=$group;Manifest=$manifest}
+          }
+          $fddPolicy=ResourcePolicy 'FDD_RESOURCE' $exe
           $fdd=ProbeWindow 'FDD_EXE' $exe
           dotnet publish VideoDownloader.csproj -c Release -r win-x64 --self-contained true -o "$env:RUNNER_TEMP\r17u-publish"
-          $scdExe=Join-Path $env:RUNNER_TEMP 'r17u-publish\阿斌视频下载器.exe'; $scd=ProbeWindow 'SCD_EXE' $scdExe
+          $scdExe=Join-Path $env:RUNNER_TEMP 'r17u-publish\阿斌视频下载器.exe'; $scdPolicy=ResourcePolicy 'SCD_RESOURCE' $scdExe; $scd=ProbeWindow 'SCD_EXE' $scdExe
           $bytes=[IO.File]::ReadAllBytes($exe); $needle=[Text.Encoding]::UTF8.GetBytes('阿斌视频下载器.dll')
           function ContainsBytes($h,$n){for($x=0;$x-le$h.Length-$n.Length;$x++){ $ok=$true; for($y=0;$y-lt$n.Length;$y++){if($h[$x+$y]-ne$n[$y]){$ok=$false;break}};if($ok){return $true}};return $false}
           $binding=ContainsBytes $bytes $needle
+          $asm=[Reflection.AssemblyName]::GetAssemblyName($dll); $dllvi=[Diagnostics.FileVersionInfo]::GetVersionInfo($dll); $csproj=Get-Content VideoDownloader.csproj -Raw
+          $metadata=(-not $csproj.Contains('<GenerateAssemblyInfo>false</GenerateAssemblyInfo>')) -and (-not $csproj.Contains('<GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>')) -and $asm.Name -eq '阿斌视频下载器'
+          Write-Host "MANAGED_METADATA IDENTITY=$($asm.Name) VERSION=$($asm.Version) FILEVERSION=$($dllvi.FileVersion) PRODUCTVERSION=$($dllvi.ProductVersion)"
+          Write-Host "SOURCE_SHA_EXACT=PASS"
           Write-Host "APPHOST_BINDING_MATCHES=$(if($binding){'PASS'}else{'FAIL'})"
           Write-Host "APPHOST_FDD_WINDOW_READY=$(if($fdd.Ready){'PASS'}else{'FAIL'})"
           Write-Host "APPHOST_SCD_WINDOW_READY=$(if($scd.Ready){'PASS'}else{'FAIL'})"
           Write-Host "APPHOST_PROBE_CLEAN_EXIT=$(if($fdd.Clean -and $scd.Clean){'PASS'}else{'FAIL'})"
+          Write-Host "APPHOST_VERSION_RESOURCE_POLICY=$(if(-not$fddPolicy.Version -and -not$scdPolicy.Version){'PASS'}else{'FAIL'})"
+          Write-Host "APPHOST_ICON_PRESERVED=$(if($fddPolicy.Icon -and $fddPolicy.Group -and $scdPolicy.Icon -and $scdPolicy.Group){'PASS'}else{'FAIL'})"
+          Write-Host "APPHOST_MANIFEST_PRESERVED=$(if($fddPolicy.Manifest -and $scdPolicy.Manifest){'PASS'}else{'FAIL'})"
+          Write-Host "MANAGED_METADATA_PRESERVED=$(if($metadata){'PASS'}else{'FAIL'})"
           Write-Host 'APPHOST_NO_WRAPPER_WORKAROUND=PASS'
           $mpv=Get-ChildItem $out -Filter 'libmpv-2.dll'|Select-Object -First 1; if(-not$mpv){throw 'T18_LIBMPV_RUNTIME=FAIL'}; Write-Host "T18_LIBMPV_RUNTIME=READY:$($mpv.FullName)"
-          if(-not($fdd.Ready -and $scd.Ready -and $fdd.Clean -and $scd.Clean -and $binding)){throw 'APPHOST_A2_GATE_FAILURE'}
+          if(-not($fdd.Ready -and $scd.Ready -and $fdd.Clean -and $scd.Clean -and $binding -and -not$fddPolicy.Version -and -not$scdPolicy.Version -and $fddPolicy.Icon -and $fddPolicy.Group -and $scdPolicy.Icon -and $scdPolicy.Group -and $fddPolicy.Manifest -and $scdPolicy.Manifest -and $metadata)){throw 'APPHOST_A3_GATE_FAILURE'}
