@@ -1,0 +1,46 @@
+name: R17S Player Geometry
+on:
+  push:
+    paths: ['.ci/r17-sha.txt']
+permissions:
+  contents: read
+jobs:
+  validate-player:
+    runs-on: windows-2025
+    steps:
+      - id: sha
+        shell: pwsh
+        env: { GITHUB_TOKEN: '${{ github.token }}' }
+        run: |
+          $raw=Invoke-RestMethod -Headers @{Authorization="Bearer $env:GITHUB_TOKEN";Accept='application/vnd.github.raw+json'} -Uri "https://api.github.com/repos/${env:GITHUB_REPOSITORY}/contents/.ci/r17-sha.txt?ref=${env:GITHUB_SHA}"
+          $sha=([string]$raw).Trim(); "sha=$sha">>$env:GITHUB_OUTPUT; Write-Host "REQUESTED_SOURCE_SHA=$sha"
+      - uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: '${{ steps.sha.outputs.sha }}'
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+      - shell: pwsh
+        run: |
+          $actual=(git rev-parse HEAD).Trim(); Write-Host "SOURCE_SHA=$actual"; if($actual-ne'${{ steps.sha.outputs.sha }}'){throw 'SHA mismatch'}
+          $p=Get-Content 'UI/Controls/MediaPlayerViewport.cs' -Raw
+          $m=Get-Content 'UI/V14DesignForm.MediaDiscovery.cs' -Raw
+          $f=Get-Content 'UI/Controls/MediaFullscreenHost.cs' -Raw
+          if($p-notmatch'SetBoundsCore.*barHeight=Px\(56\)' -or $p-notmatch'LayoutToViewport\(\).*barHeight=Px\(56\)'){throw 'PLAYER_SINGLE_BAR_HEIGHT_CONTRACT=FAIL'}
+          if($p-notmatch'int y=Math.Max\(0,\(Height-icon\)/2\)' -or $p-notmatch'int timeHeight=Px\(20\)' -or $p-notmatch'int seekHeight=Px\(10\)'){throw 'PLAYER_CONTROLS_VERTICAL_FIT=FAIL'}
+          if($p-notmatch'_renderSurface=new Panel.*Dock=DockStyle.Fill' -or $p-notmatch'_renderSurface.SendToBack\(\)'){throw 'PLAYER_RENDER_SURFACE_CONTRACT=FAIL'}
+          if($f-notmatch'Viewport.Bounds = ClientRectangle' -or $f-notmatch'LayoutPlayerControls\(\).*LayoutToViewport'){throw 'PLAYER_FULLSCREEN_PATH=FAIL'}
+          if($m-notmatch'MediaPlayerViewport.Largest16By9\(available\)'){throw 'PLAYER_WINDOWED_VIEWPORT_ASPECT=FAIL'}
+          Write-Host 'PLAYER_SINGLE_BAR_HEIGHT_CONTRACT=PASS 56px DPI-scaled bar contract'
+          Write-Host 'PLAYER_CONTROLS_VERTICAL_FIT=PASS controls centered from actual bar Height'
+          Write-Host 'PLAYER_RENDER_SURFACE_CONTRACT=PASS libmpv render surface remains fill/back layer'
+          Write-Host 'PLAYER_FULLSCREEN_PATH=PASS fullscreen still delegates to LayoutToViewport'
+          Write-Host 'PLAYER_WINDOWED_VIEWPORT_ASPECT=PASS windowed viewport retains 16:9 contain geometry'
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - shell: pwsh
+        run: |
+          dotnet restore VideoDownloader.csproj; if($LASTEXITCODE-ne0){exit $LASTEXITCODE}
+          dotnet build VideoDownloader.csproj -c Release --no-restore; if($LASTEXITCODE-ne0){exit $LASTEXITCODE}
+          $mpv=Get-ChildItem 'bin\Release\net10.0-windows' -Filter 'libmpv-2.dll'|Select-Object -First 1
+          if(-not$mpv){throw 'T18_LIBMPV_RUNTIME=FAIL'}; Write-Host "T18_LIBMPV_RUNTIME=READY:$($mpv.FullName)"
