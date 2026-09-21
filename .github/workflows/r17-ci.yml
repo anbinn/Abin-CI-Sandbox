@@ -64,6 +64,18 @@ jobs:
           Write-Host 'CATEGORY_IDENTITY_ALL_MOVIE_SERIES_ANIME=PASS category key flows unchanged through progressive request/cache'
           Write-Host 'CATEGORY_OWNING_PROVIDER_IDENTITY=PASS concrete source mapping survives batch publication'
           Write-Host 'HOME_ALL_CATALOG_SEMANTIC=PASS initial integrated Home remains CatalogAsync(all)'
+          if($u-notmatch'AppendCategoryCards\(key,visible\)' -or $u-notmatch'if\(progressive\)AppendCategoryCards\(key,finalItems\)' -or $u-notmatch'RefreshMediaDiscoveryOuterLayoutPreserveScroll\(\)'){throw 'CATEGORY_INCREMENTAL_RENDER_NO_SCROLL_RESET=FAIL'}
+          if($u-notmatch'if\(generation!=_mediaCategoryGeneration\|\|sourceId!=_mediaCurrentSourceId\|\|_mediaCurrentPage.Kind!=MediaPageKind.Home\|\|_mediaSelectedCategory!=key\)return'){throw 'CATEGORY_INCREMENTAL_STALE_GUARD=FAIL'}
+          if($u-notmatch'_mediaCategoryCache\[cacheKey\]=finalItems'){throw 'CATEGORY_FINAL_CACHE_COMPLETE=FAIL'}
+          if($m-notmatch'public void SetArtwork\(Image image\)' -or $m-notmatch'if\(_artwork is null\).*else\{var scale=Math.Max' -or $m-notmatch'TextRenderer.DrawText\(e.Graphics,_title'){throw 'POSTER_ARTWORK_METADATA_COMPOSITION=FAIL'}
+          if($m-notmatch'RoundedPanel.CreateRoundedRectangle' -or $m-notmatch'e.Graphics.SetClip\(clip\)'){throw 'POSTER_ROUNDED_CLIP=FAIL'}
+          if($m-notmatch'_mediaInternalPage.Controls.Cast<Control>\(\).*Select\(c=>c.Bottom\)' -or $u-notmatch'MaximumSize=new Size\(Math.Max\(Px\(320\),_mediaInternalPage.Width-Px\(100\)\),0\)' -or $u-notmatch'DeviceDpi/96d'){throw 'DETAIL_CONTENT_DRIVEN_EXTENT_DPI=FAIL'}
+          Write-Host 'CATEGORY_INCREMENTAL_RENDER_NO_SCROLL_RESET=PASS later provider batches append cards and preserve scroll'
+          Write-Host 'CATEGORY_INCREMENTAL_STALE_GUARD=PASS generation+source+page+category guard retained'
+          Write-Host 'CATEGORY_FINAL_CACHE_COMPLETE=PASS final merged result stored in source+category cache'
+          Write-Host 'POSTER_ARTWORK_METADATA_COMPOSITION=PASS artwork and metadata paint in one poster composition'
+          Write-Host 'POSTER_ROUNDED_CLIP=PASS artwork remains inside rounded poster clip'
+          Write-Host 'DETAIL_CONTENT_DRIVEN_EXTENT_DPI=PASS visible child bottoms drive detail extent; wrap width and DPI scaling remain dynamic'
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: '10.0.x' }
       - shell: pwsh
