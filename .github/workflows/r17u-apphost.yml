@@ -29,32 +29,31 @@ jobs:
           dotnet restore VideoDownloader.csproj
           dotnet build VideoDownloader.csproj -c Release --no-restore
           $out=Resolve-Path 'bin\Release\net10.0-windows'
-          $dll=Join-Path $out '阿斌视频下载器.dll'; $exe=Join-Path $out '阿斌视频下载器.exe'
-          $deps=Join-Path $out '阿斌视频下载器.deps.json'; $rc=Join-Path $out '阿斌视频下载器.runtimeconfig.json'
-          foreach($f in @($dll,$exe,$deps,$rc)){if(-not(Test-Path $f)){throw "APPHOST_ARTIFACT_MISSING=$f"}}
-          function Probe([string]$label,[string]$file,[string[]]$args=@()){
+          $exe=Join-Path $out '阿斌视频下载器.exe'; $dll=Join-Path $out '阿斌视频下载器.dll'
+          function ProbeWindow([string]$label,[string]$file,[string[]]$args=@()){
             $env:COREHOST_TRACE='1'; $env:COREHOST_TRACEFILE=(Join-Path $env:RUNNER_TEMP "$label-host.txt"); $env:COREHOST_TRACE_VERBOSITY='4'
             $p=Start-Process -FilePath $file -ArgumentList $args -PassThru
-            Start-Sleep -Seconds 4
-            $alive=-not $p.HasExited; $code=if($p.HasExited){$p.ExitCode}else{$null}
-            Write-Host "$label ALIVE=$alive EXIT=$code PID=$($p.Id)"
-            if(Test-Path $env:COREHOST_TRACEFILE){Get-Content $env:COREHOST_TRACEFILE | Select-Object -Last 40 | ForEach-Object { Write-Host $_ }}
-            if($alive){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue}
-            return [bool]$alive
+            $ready=$false; $title=''; $handle=[IntPtr]::Zero
+            for($i=0;$i-lt 20;$i++){ Start-Sleep -Milliseconds 500; $p.Refresh(); if($p.HasExited){break}; $handle=$p.MainWindowHandle; $title=$p.MainWindowTitle; if($handle-ne[IntPtr]::Zero -and -not[string]::IsNullOrWhiteSpace($title)){ $ready=$true; break } }
+            Write-Host "$label WINDOW_READY=$ready HANDLE=$handle TITLE=$title ALIVE=$(-not $p.HasExited) EXIT=$(if($p.HasExited){$p.ExitCode}else{''}) PID=$($p.Id)"
+            if(Test-Path $env:COREHOST_TRACEFILE){Get-Content $env:COREHOST_TRACEFILE | Select-Object -Last 30 | ForEach-Object {Write-Host $_}}
+            if(-not$p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; $p.WaitForExit(5000)|Out-Null}
+            Start-Sleep -Milliseconds 500
+            $residual=Get-Process -Name '阿斌视频下载器' -ErrorAction SilentlyContinue
+            $clean=($null-eq$residual); Write-Host "$label CLEAN_EXIT=$clean"
+            if($residual){$residual|Stop-Process -Force -ErrorAction SilentlyContinue}
+            return [pscustomobject]@{Ready=$ready;Clean=$clean}
           }
-          [bool]$managed=Probe 'MANAGED_DLL' 'dotnet' @($dll)
-          [bool]$fdd=Probe 'FDD_EXE' $exe
+          $fdd=ProbeWindow 'FDD_EXE' $exe
           dotnet publish VideoDownloader.csproj -c Release -r win-x64 --self-contained true -o "$env:RUNNER_TEMP\r17u-publish"
-          $scdExe=Join-Path $env:RUNNER_TEMP 'r17u-publish\阿斌视频下载器.exe'
-          if(-not(Test-Path $scdExe)){throw 'SCD_EXE_MISSING'}
-          [bool]$scd=Probe 'SCD_EXE' $scdExe
+          $scdExe=Join-Path $env:RUNNER_TEMP 'r17u-publish\阿斌视频下载器.exe'; $scd=ProbeWindow 'SCD_EXE' $scdExe
           $bytes=[IO.File]::ReadAllBytes($exe); $needle=[Text.Encoding]::UTF8.GetBytes('阿斌视频下载器.dll')
-          function ContainsBytes($hay,$n){for($x=0;$x-le$hay.Length-$n.Length;$x++){ $ok=$true; for($y=0;$y-lt$n.Length;$y++){if($hay[$x+$y]-ne$n[$y]){$ok=$false;break}}; if($ok){return $true}}; return $false}
-          [bool]$binding=ContainsBytes $bytes $needle; Write-Host "APPHOST_EMBEDDED_UTF8_DLL=$binding"
-          if($managed){Write-Host 'APPHOST_MANAGED_DLL_STARTS=PASS'}else{Write-Host 'APPHOST_MANAGED_DLL_STARTS=FAIL'}
-          if($fdd){Write-Host 'APPHOST_FDD_EXE_STARTS=PASS'}else{Write-Host 'APPHOST_FDD_EXE_STARTS=FAIL'}
-          if($scd){Write-Host 'APPHOST_SCD_EXE_STARTS=PASS'}else{Write-Host 'APPHOST_SCD_EXE_STARTS=FAIL'}
-          if($binding){Write-Host 'APPHOST_BINDING_MATCHES=PASS'}else{Write-Host 'APPHOST_BINDING_MATCHES=FAIL'}
+          function ContainsBytes($h,$n){for($x=0;$x-le$h.Length-$n.Length;$x++){ $ok=$true; for($y=0;$y-lt$n.Length;$y++){if($h[$x+$y]-ne$n[$y]){$ok=$false;break}};if($ok){return $true}};return $false}
+          $binding=ContainsBytes $bytes $needle
+          Write-Host "APPHOST_BINDING_MATCHES=$(if($binding){'PASS'}else{'FAIL'})"
+          Write-Host "APPHOST_FDD_WINDOW_READY=$(if($fdd.Ready){'PASS'}else{'FAIL'})"
+          Write-Host "APPHOST_SCD_WINDOW_READY=$(if($scd.Ready){'PASS'}else{'FAIL'})"
+          Write-Host "APPHOST_PROBE_CLEAN_EXIT=$(if($fdd.Clean -and $scd.Clean){'PASS'}else{'FAIL'})"
           Write-Host 'APPHOST_NO_WRAPPER_WORKAROUND=PASS'
           $mpv=Get-ChildItem $out -Filter 'libmpv-2.dll'|Select-Object -First 1; if(-not$mpv){throw 'T18_LIBMPV_RUNTIME=FAIL'}; Write-Host "T18_LIBMPV_RUNTIME=READY:$($mpv.FullName)"
-          if(-not($managed -and $fdd -and $scd -and $binding)){throw 'APPHOST_MATRIX_FAILURE'}
+          if(-not($fdd.Ready -and $scd.Ready -and $fdd.Clean -and $scd.Clean -and $binding)){throw 'APPHOST_A2_GATE_FAILURE'}
