@@ -64,6 +64,26 @@ jobs:
           @("CandidateA_SHA256=$h","CandidateA_Size=279552","Source_SHA=474471262da118842db022cf2711b613da681dd0","SDK=10.0.401","Runtime=10.0.12") | Set-Content (Join-Path $pkg 'IDENTITY.txt') -Encoding ascii
           @('C20R7N Norton discriminator','Safety: package never disables Norton or changes exclusions automatically.','Run 1: double-click c20r7n-run-on-win10.cmd.','If CONFIRMATION_REQUIRED.txt appears, stop. PM/user explicit approval is required before a minimal reversible Norton exception change for Abin.exe only.','After approved manual state change, double-click the same CMD once for Run 2.','After Run 2 restore the original Norton state.') | Set-Content (Join-Path $pkg 'README.txt') -Encoding utf8
           Compress-Archive -Path "$pkg\*" -DestinationPath "$env:GITHUB_WORKSPACE\C20R7N-Win10-Norton-Discriminator.zip" -Force
+      - name: Real discriminator regression on packaged Candidate A
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $pkg = Join-Path $env:GITHUB_WORKSPACE 'C20R7N-Win10-Norton-Discriminator'
+          $result = Join-Path $env:RUNNER_TEMP 'real-discriminator-result.json'
+          $missingNortonLog = Join-Path $env:RUNNER_TEMP 'definitely-missing-norton-autosandbox.log'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $pkg 'c20r7n-norton-discriminator.ps1') -ExePath (Join-Path $pkg 'Abin.exe') -ExpectedSha256 '18599C12A9A00E75F13A58F48E355F6F6FF20DBAEE049D8E856373AF5006A358' -NortonLogPath $missingNortonLog -ResultPath $result -ObserveSeconds 2
+          if ($LASTEXITCODE -ne 0) { throw "REAL_DISCRIMINATOR_FAILED_$LASTEXITCODE" }
+          if (!(Test-Path $result)) { throw 'REAL_DISCRIMINATOR_RESULT_MISSING' }
+          $r = Get-Content $result -Raw | ConvertFrom-Json
+          if ($r.exe_sha256 -ne '18599C12A9A00E75F13A58F48E355F6F6FF20DBAEE049D8E856373AF5006A358') { throw 'REAL_DISCRIMINATOR_IDENTITY_MISMATCH' }
+          if ($null -eq $r.max_exact_path_count) { throw 'REAL_DISCRIMINATOR_MAX_COUNT_MISSING' }
+          if ($null -eq $r.window_seen) { throw 'REAL_DISCRIMINATOR_WINDOW_FIELD_MISSING' }
+          if ($null -eq $r.observations -or @($r.observations).Count -ne 2) { throw 'REAL_DISCRIMINATOR_OBSERVATIONS_INVALID' }
+          foreach ($o in @($r.observations)) {
+            if ($null -eq $o.exact_path_count) { throw 'REAL_DISCRIMINATOR_EXACT_PATH_COUNT_MISSING' }
+            if ($null -eq $o.processes) { throw 'REAL_DISCRIMINATOR_PROCESSES_MISSING' }
+          }
+          Write-Host "REAL_DISCRIMINATOR_PASS max_exact_path_count=$($r.max_exact_path_count) window_seen=$($r.window_seen) observations=$(@($r.observations).Count)"
       - name: Offline self-test through exact CMD launcher
         shell: powershell
         run: |
