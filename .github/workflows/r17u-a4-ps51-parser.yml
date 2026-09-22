@@ -1,0 +1,46 @@
+name: R17U A4 PS5.1 Parser Gate
+on:
+  push:
+    paths: ['.ci/r17u-a4-parser-sha.txt']
+permissions:
+  contents: read
+jobs:
+  parser-only:
+    runs-on: windows-2025
+    steps:
+      - id: sha
+        shell: pwsh
+        env: { GITHUB_TOKEN: '${{ github.token }}' }
+        run: |
+          $raw=Invoke-RestMethod -Headers @{Authorization="Bearer $env:GITHUB_TOKEN";Accept='application/vnd.github.raw+json'} -Uri "https://api.github.com/repos/${env:GITHUB_REPOSITORY}/contents/.ci/r17u-a4-parser-sha.txt?ref=${env:GITHUB_SHA}"
+          $sha=([string]$raw).Trim()
+          "sha=$sha">>$env:GITHUB_OUTPUT
+          Write-Host "REQUESTED_PRIVATE_SHA=$sha"
+      - uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: '${{ steps.sha.outputs.sha }}'
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+      - name: Windows PowerShell 5.1 parser only
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $requested='${{ steps.sha.outputs.sha }}'
+          $actual=(git rev-parse HEAD).Trim()
+          Write-Host "REQUESTED_PRIVATE_SHA=$requested"
+          Write-Host "ACTUAL_PRIVATE_SHA=$actual"
+          if($actual -cne $requested){throw 'PRIVATE_SHA_MISMATCH'}
+          Write-Host "PSEdition=$($PSVersionTable.PSEdition)"
+          Write-Host "PSVersion=$($PSVersionTable.PSVersion)"
+          if($PSVersionTable.PSEdition -cne 'Desktop'){throw 'PSEDITION_NOT_DESKTOP'}
+          if($PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1){throw 'PSVERSION_NOT_5_1'}
+          $path=(Resolve-Path '.\build\R17UA4\Invoke-BDedicatedLauncherIsolation.ps1').Path
+          $tokens=$null
+          $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors) > $null
+          foreach($e in $errors){Write-Host ($e | Format-List * | Out-String)}
+          Write-Host "PARSER_ERROR_COUNT=$($errors.Count)"
+          Write-Host 'DIAGNOSTIC_MATRIX_EXECUTED=false'
+          Write-Host 'PRODUCT_EXECUTED=false'
+          if($errors.Count -ne 0){throw 'PARSER_ERRORS_PRESENT'}
