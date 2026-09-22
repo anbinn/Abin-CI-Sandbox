@@ -1,8 +1,11 @@
 @echo off
 setlocal
 cd /d "%~dp0"
+set "PKG=%CD%"
+set "SELFTEST="
+if /I "%~1"=="--self-test" set "SELFTEST=-SelfTest"
 del /q "%~dp0c20r7n-console.log" >nul 2>&1
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0c20r7n-two-run-controller.ps1" -PackageDir "%~dp0" > "%~dp0c20r7n-console.log" 2>&1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0c20r7n-two-run-controller.ps1" -PackageDir "%PKG%" %SELFTEST% > "%~dp0c20r7n-console.log" 2>&1
 set "RC=%ERRORLEVEL%"
 if not "%RC%"=="0" (
   echo.
