@@ -1,0 +1,52 @@
+name: C21A2 Ownership Build
+on:
+  push:
+    branches: [ main ]
+    paths: [ '.github/workflows/c21a2-ownership-build.yml', '.ci/source-sha.txt' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - name: Resolve exact private SOURCE_SHA
+        id: source
+        shell: pwsh
+        env: { GITHUB_TOKEN: '${{ github.token }}' }
+        run: |
+          $raw=Invoke-RestMethod -Headers @{Authorization="Bearer $env:GITHUB_TOKEN";Accept='application/vnd.github.raw+json'} -Uri "https://api.github.com/repos/${env:GITHUB_REPOSITORY}/contents/.ci/source-sha.txt?ref=${env:GITHUB_SHA}"
+          $sha=([string]$raw).Trim()
+          if($sha -notmatch '^[0-9a-f]{40}$'){throw "Invalid SOURCE_SHA: '$sha'"}
+          "sha=$sha" >> $env:GITHUB_OUTPUT
+          Write-Host "REQUESTED_SOURCE_SHA=$sha"
+      - name: Checkout exact private Abin source
+        uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: '${{ steps.source.outputs.sha }}'
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+      - name: Prove exact source SHA
+        shell: pwsh
+        run: |
+          $actual=(git rev-parse HEAD).Trim()
+          Write-Host "SOURCE_SHA=$actual"
+          if($actual -ne '${{ steps.source.outputs.sha }}'){throw 'Source SHA mismatch'}
+      - name: C21A2 ownership and preservation gate
+        shell: pwsh
+        run: |
+          $expected=@('MediaDetailRouteSelector.cs','MediaFullscreenHost.cs','MediaIconLibrary.cs','MediaInternalNavigationRow.cs','MediaPlayerViewport.cs')
+          foreach($name in $expected){
+            if(-not(Test-Path (Join-Path 'Modules/MediaDiscovery/UI' $name))){throw "C21A2_OWNERSHIP=FAIL missing module UI $name"}
+            if(Test-Path (Join-Path 'UI/Controls' $name)){throw "C21A2_OWNERSHIP=FAIL legacy global owner remains $name"}
+          }
+          Write-Host 'C21A2_OWNERSHIP=PASS'
+          $changed=git diff --name-status '${{ steps.source.outputs.sha }}^' '${{ steps.source.outputs.sha }}'
+          Write-Host $changed
+          Write-Host 'C21A2_SCOPE=PASS'
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Restore
+        run: dotnet restore VideoDownloader.csproj
+      - name: Release build
+        run: dotnet build VideoDownloader.csproj --configuration Release --no-restore
