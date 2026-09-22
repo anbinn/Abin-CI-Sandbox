@@ -30,13 +30,14 @@ jobs:
           if($files.Count -ne 3){throw "C21A5_SCOPE=FAIL count=$($files.Count)"}
           foreach($f in $files){if($f -notin $allowed){throw "C21A5_SCOPE=FAIL unauthorized $f"}}
           Write-Host 'C21A5_SCOPE=PASS'
-          $diff=(git diff $base HEAD -- $allowed) -join "`n"
-          if($diff -match 'Parent\?\.BackColor'){throw 'C21A5_PARENT_PAINT=FAIL'}
+          $targets=(Get-Content 'Modules/MediaDiscovery/UI/MediaDetailRouteSelector.cs' -Raw)+(Get-Content 'Modules/MediaDiscovery/UI/MediaIconLibrary.cs' -Raw)
+          if($targets -match 'Parent\?\.BackColor'){throw 'C21A5_PARENT_PAINT=FAIL'}
           Write-Host 'C21A5_NO_IMPLICIT_PARENT_PAINT=PASS'
           $geometryTokens='SetBounds|\.Location\s*=|\.Size\s*=|Padding\s*=|Dock\s*=|Anchor\s*='
           $added=@(git diff -U0 $base HEAD -- $allowed | Where-Object {$_ -match '^\+(?!\+)'})
           if(($added -join "`n") -match $geometryTokens){throw 'C21A5_GEOMETRY_FREEZE=FAIL'}
           Write-Host 'C21A5_GEOMETRY_FREEZE=PASS'
+          $diff=(git diff $base HEAD -- $allowed) -join "`n"
           if($diff -notmatch 'HostSurfaceColor'){throw 'C21A5_HOST_CONTRACT=FAIL'}
           Write-Host 'C21A5_HOST_CONTRACT=PASS'
       - name: Setup .NET
