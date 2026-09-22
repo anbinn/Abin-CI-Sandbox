@@ -25,6 +25,7 @@ jobs:
           ref: '${{ steps.source.outputs.sha }}'
           token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
           persist-credentials: false
+          fetch-depth: 2
       - name: Prove exact source SHA
         shell: pwsh
         run: |
@@ -41,6 +42,7 @@ jobs:
           }
           Write-Host 'C21A2_OWNERSHIP=PASS'
           $changed=git diff --name-status '${{ steps.source.outputs.sha }}^' '${{ steps.source.outputs.sha }}'
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           Write-Host $changed
           Write-Host 'C21A2_SCOPE=PASS'
       - name: Setup .NET
