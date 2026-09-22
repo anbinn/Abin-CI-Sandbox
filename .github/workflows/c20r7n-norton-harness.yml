@@ -1,0 +1,38 @@
+name: C20R7N Norton discriminator harness
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'tools/c20r7n-norton-discriminator.ps1'
+      - '.github/workflows/c20r7n-norton-harness.yml'
+permissions:
+  contents: read
+jobs:
+  self-test:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create deterministic disposable EXE fixture
+        shell: pwsh
+        run: |
+          Copy-Item "$env:SystemRoot\System32\timeout.exe" "$env:RUNNER_TEMP\c20r7n-fixture.exe"
+          $sha=(Get-FileHash "$env:RUNNER_TEMP\c20r7n-fixture.exe" -Algorithm SHA256).Hash
+          "FIXTURE_SHA=$sha" >> $env:GITHUB_ENV
+      - name: Run harness without Norton
+        shell: pwsh
+        run: |
+          ./tools/c20r7n-norton-discriminator.ps1 -ExePath "$env:RUNNER_TEMP\c20r7n-fixture.exe" -ExpectedSha256 $env:FIXTURE_SHA -NortonLogPath "$env:RUNNER_TEMP\absent-autosandbox.log" -ResultPath "$env:RUNNER_TEMP\c20r7n-result.json" -ObserveSeconds 2
+      - name: Validate result schema and cleanup
+        shell: pwsh
+        run: |
+          $r=Get-Content "$env:RUNNER_TEMP\c20r7n-result.json" -Raw | ConvertFrom-Json
+          if($r.exe_sha256 -ne $env:FIXTURE_SHA){throw 'identity mismatch'}
+          if($r.norton_decision -ne 'UNKNOWN'){throw 'Norton absence classification mismatch'}
+          if(-not $r.started_at -or -not $r.ended_at -or -not $r.os_caption){throw 'missing evidence fields'}
+          $left=@(Get-CimInstance Win32_Process | Where-Object {$_.ExecutablePath -eq "$env:RUNNER_TEMP\c20r7n-fixture.exe"})
+          if($left.Count -ne 0){throw 'cleanup failed'}
+          Get-Content "$env:RUNNER_TEMP\c20r7n-result.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: c20r7n-harness-self-test
+          path: ${{ runner.temp }}/c20r7n-result.json
