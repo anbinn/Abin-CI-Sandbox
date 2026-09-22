@@ -57,6 +57,11 @@ jobs:
           if ($hash -ne '18599C12A9A00E75F13A58F48E355F6F6FF20DBAEE049D8E856373AF5006A358') { throw 'CANDIDATE_A_HASH_MISMATCH' }
           if ($size -ne 279552) { throw 'CANDIDATE_A_SIZE_MISMATCH' }
 
+          $builtLibMpv = Join-Path (Get-Location) 'bin\Release\net10.0-windows\win-x64\libmpv-2.dll'
+          if (!(Test-Path -LiteralPath $builtLibMpv)) { throw 'BUILT_LIBMPV_MISSING' }
+          Copy-Item -LiteralPath $builtLibMpv -Destination (Join-Path $publish 'libmpv-2.dll') -Force
+          Write-Host 'PACKAGED_LIBMPV=PASS'
+
           $pkg = Join-Path $env:GITHUB_WORKSPACE 'C20R9N-V1.6-Fresh-No-Norton-Test'
           New-Item -ItemType Directory -Path $pkg -Force | Out-Null
           Copy-Item (Join-Path $publish '*') $pkg -Recurse -Force
@@ -69,6 +74,7 @@ jobs:
             'Configuration=Release',
             'SelfContained=true',
             'PublishSingleFile=false',
+            'PinnedLibMpvIncluded=true',
             "ProductExe_SHA256=$hash",
             "ProductExe_Size=$size"
           ) | Set-Content (Join-Path $pkg 'IDENTITY.txt') -Encoding ascii
