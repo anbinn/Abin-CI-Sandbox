@@ -64,7 +64,7 @@ jobs:
           @("CandidateA_SHA256=$h","CandidateA_Size=279552","Source_SHA=474471262da118842db022cf2711b613da681dd0","SDK=10.0.401","Runtime=10.0.12") | Set-Content (Join-Path $pkg 'IDENTITY.txt') -Encoding ascii
           @('C20R7N Norton discriminator','Safety: package never disables Norton or changes exclusions automatically.','Run 1: double-click c20r7n-run-on-win10.cmd.','If CONFIRMATION_REQUIRED.txt appears, stop. PM/user explicit approval is required before a minimal reversible Norton exception change for Abin.exe only.','After approved manual state change, double-click the same CMD once for Run 2.','After Run 2 restore the original Norton state.') | Set-Content (Join-Path $pkg 'README.txt') -Encoding utf8
           Compress-Archive -Path "$pkg\*" -DestinationPath "$env:GITHUB_WORKSPACE\C20R7N-Win10-Norton-Discriminator.zip" -Force
-      - name: Offline self-test
+      - name: Offline self-test through exact CMD launcher
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
@@ -73,8 +73,10 @@ jobs:
           Expand-Archive $zip $d -Force
           if ((Get-FileHash (Join-Path $d 'Abin.exe') -Algorithm SHA256).Hash -ne '18599C12A9A00E75F13A58F48E355F6F6FF20DBAEE049D8E856373AF5006A358') { throw 'ZIP_IDENTITY_MISMATCH' }
           foreach ($f in @('c20r7n-norton-discriminator.ps1','c20r7n-two-run-controller.ps1','c20r7n-run-on-win10.cmd','IDENTITY.txt','README.txt')) { if (!(Test-Path (Join-Path $d $f))) { throw "MISSING_$f" } }
-          powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $d 'c20r7n-two-run-controller.ps1') -PackageDir $d -SelfTest
-          if ($LASTEXITCODE -ne 0) { throw 'CONTROLLER_SELFTEST_FAILED' }
+          & (Join-Path $d 'c20r7n-run-on-win10.cmd') --self-test
+          if ($LASTEXITCODE -ne 0) { throw "CMD_LAUNCHER_SELFTEST_FAILED_$LASTEXITCODE" }
+          if (!(Test-Path (Join-Path $d 'c20r7n-summary.json'))) { throw 'CMD_LAUNCHER_SUMMARY_MISSING' }
+          if (Test-Path (Join-Path $d 'c20r7n-error.txt')) { throw 'CMD_LAUNCHER_ERROR_FILE_PRESENT' }
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
