@@ -1,0 +1,48 @@
+name: C21A5 Host Surface Build
+on:
+  push:
+    branches: [ main ]
+    paths: [ '.github/workflows/c21a5-host-surface-build.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout exact private Abin source
+        uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: c9cbb5ece49d3d09424923f1cb5519422dca8844
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Prove exact source and C21A5 scope
+        shell: pwsh
+        run: |
+          $expected='c9cbb5ece49d3d09424923f1cb5519422dca8844'
+          $actual=(git rev-parse HEAD).Trim()
+          Write-Host "SOURCE_SHA=$actual"
+          if($actual -ne $expected){throw 'C21A5_EXACT_SOURCE=FAIL'}
+          Write-Host 'C21A5_EXACT_SOURCE=PASS'
+          $base=(git rev-parse HEAD^).Trim()
+          $files=@(git diff --name-only $base HEAD)
+          $allowed=@('Modules/MediaDiscovery/UI/MediaDetailRouteSelector.cs','Modules/MediaDiscovery/UI/MediaIconLibrary.cs','Modules/MediaDiscovery/UI/MediaPlayerViewport.cs')
+          if($files.Count -ne 3){throw "C21A5_SCOPE=FAIL count=$($files.Count)"}
+          foreach($f in $files){if($f -notin $allowed){throw "C21A5_SCOPE=FAIL unauthorized $f"}}
+          Write-Host 'C21A5_SCOPE=PASS'
+          $diff=(git diff $base HEAD -- $allowed) -join "`n"
+          if($diff -match 'Parent\?\.BackColor'){throw 'C21A5_PARENT_PAINT=FAIL'}
+          Write-Host 'C21A5_NO_IMPLICIT_PARENT_PAINT=PASS'
+          $geometryTokens='SetBounds|\.Location\s*=|\.Size\s*=|Padding\s*=|Dock\s*=|Anchor\s*='
+          $added=@(git diff -U0 $base HEAD -- $allowed | Where-Object {$_ -match '^\+(?!\+)'})
+          if(($added -join "`n") -match $geometryTokens){throw 'C21A5_GEOMETRY_FREEZE=FAIL'}
+          Write-Host 'C21A5_GEOMETRY_FREEZE=PASS'
+          if($diff -notmatch 'HostSurfaceColor'){throw 'C21A5_HOST_CONTRACT=FAIL'}
+          Write-Host 'C21A5_HOST_CONTRACT=PASS'
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Restore
+        run: dotnet restore VideoDownloader.csproj
+      - name: Release build
+        run: dotnet build VideoDownloader.csproj --configuration Release --no-restore
