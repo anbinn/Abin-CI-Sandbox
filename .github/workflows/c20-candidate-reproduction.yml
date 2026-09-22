@@ -1,0 +1,48 @@
+name: C20 Candidate Reproduction
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  reproduce:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: 474471262da118842db022cf2711b613da681dd0
+          token: ${{ secrets.ABIN_PRIVATE_READ_TOKEN }}
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.401
+      - name: Capture pinned toolchain and produce A/B
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          dotnet --info
+          $sdk=(dotnet --version).Trim(); if($sdk -ne '10.0.401'){throw "SDK=$sdk"}
+          $sdkRoot=(dotnet --list-sdks | Where-Object {$_ -match '^10\.0\.401 '}) -replace '^10\.0\.401 \[','' -replace '\]$',''
+          $hostModel=Join-Path $sdkRoot '10.0.401\Microsoft.NET.HostModel.dll'
+          $sdkAppHost=Join-Path $sdkRoot '10.0.401\AppHostTemplate\apphost.exe'
+          foreach($p in @($hostModel,$sdkAppHost)){Get-Item $p | Select FullName,Length; Get-FileHash $p -Algorithm SHA256}
+          $pack=Join-Path (Split-Path $sdkRoot -Parent) 'packs\Microsoft.NETCore.App.Host.win-x64\10.0.12\runtimes\win-x64\native\apphost.exe'
+          Get-FileHash $pack -Algorithm SHA256
+          if((Get-FileHash $sdkAppHost).Hash -ne '0649F1BEBACEF4F17B6694201ABC6DDE152C333468D2314B4F7104D34D70C7AA'){throw 'APPHOST_INPUT_HASH_MISMATCH'}
+          dotnet publish VideoDownloader.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o "$env:RUNNER_TEMP\A"
+          dotnet publish VideoDownloader.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PrepareAppHostVersionResourceNormalizerDependsOn= -p:NormalizeWindowsAppHostVersionResourceDependsOn= -p:CustomAfterMicrosoftCommonTargets= -o "$env:RUNNER_TEMP\B" /p:NormalizeWindowsAppHostVersionResource=false
+          $script=@'
+          param([string]$Tag,[string]$Dir)
+          $exe=Join-Path $Dir '阿斌视频下载器.exe'; $dll=Join-Path $Dir '阿斌视频下载器.dll'
+          $b=[IO.File]::ReadAllBytes($exe); $pe=[BitConverter]::ToInt32($b,0x3c); $n=[BitConverter]::ToUInt16($b,$pe+6); $opt=[BitConverter]::ToUInt16($b,$pe+20); $sec=$pe+24+$opt
+          Write-Host "$Tag|EXE_SHA=$((Get-FileHash $exe -Algorithm SHA256).Hash)|SIZE=$($b.Length)|SECTIONS=$n"
+          for($i=0;$i -lt $n;$i++){ $o=$sec+40*$i; $name=([Text.Encoding]::ASCII.GetString($b,$o,8)).Trim([char]0); $rs=[BitConverter]::ToUInt32($b,$o+16); $rp=[BitConverter]::ToUInt32($b,$o+20); Write-Host "$Tag|SECTION=$name|RAWSIZE=$rs|RAWPTR=$rp" }
+          $needle=[Text.Encoding]::UTF8.GetBytes('阿斌视频下载器.dll'); $found=-1; for($i=0;$i -le $b.Length-$needle.Length;$i++){ $ok=$true; for($j=0;$j -lt $needle.Length;$j++){if($b[$i+$j] -ne $needle[$j]){$ok=$false;break}}; if($ok){$found=$i;break} }; Write-Host "$Tag|DLL_OFFSET=$found"
+          $vi=[Diagnostics.FileVersionInfo]::GetVersionInfo($exe); Write-Host "$Tag|EXE_FILEVERSION=$($vi.FileVersion)|EXE_PRODUCTVERSION=$($vi.ProductVersion)"
+          $dvi=[Diagnostics.FileVersionInfo]::GetVersionInfo($dll); Write-Host "$Tag|DLL_SHA=$((Get-FileHash $dll -Algorithm SHA256).Hash)|DLL_PRODUCTVERSION=$($dvi.ProductVersion)"
+          Get-ChildItem $Dir -Filter '*.deps.json','*.runtimeconfig.json' -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "$Tag|CORE=$($_.Name)|SHA=$((Get-FileHash $_.FullName -Algorithm SHA256).Hash)" }
+          foreach($f in @('hostfxr.dll','hostpolicy.dll','coreclr.dll')){ $p=Join-Path $Dir $f; if(Test-Path $p){Write-Host "$Tag|CORE=$f|SHA=$((Get-FileHash $p -Algorithm SHA256).Hash)"} }
+          '@
+          Set-Content "$env:RUNNER_TEMP\fingerprint.ps1" $script -Encoding UTF8
+          & "$env:RUNNER_TEMP\fingerprint.ps1" A "$env:RUNNER_TEMP\A"
+          & "$env:RUNNER_TEMP\fingerprint.ps1" B "$env:RUNNER_TEMP\B"
