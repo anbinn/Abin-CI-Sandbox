@@ -1,0 +1,51 @@
+name: R17U A4 Dedicated Launcher Matrix
+on:
+  push:
+    paths: ['.ci/r17u-a4-matrix-sha.txt']
+permissions:
+  contents: read
+jobs:
+  matrix:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - id: sha
+        shell: pwsh
+        env: { GITHUB_TOKEN: '${{ github.token }}' }
+        run: |
+          $raw=Invoke-RestMethod -Headers @{Authorization="Bearer $env:GITHUB_TOKEN";Accept='application/vnd.github.raw+json'} -Uri "https://api.github.com/repos/${env:GITHUB_REPOSITORY}/contents/.ci/r17u-a4-matrix-sha.txt?ref=${env:GITHUB_SHA}"
+          $sha=([string]$raw).Trim()
+          "sha=$sha">>$env:GITHUB_OUTPUT
+          Write-Host "REQUESTED_PRIVATE_SHA=$sha"
+      - uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: '${{ steps.sha.outputs.sha }}'
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+      - name: Execute isolation matrix
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $requested='${{ steps.sha.outputs.sha }}'
+          $actual=(git rev-parse HEAD).Trim()
+          Write-Host "REQUESTED_PRIVATE_SHA=$requested"
+          Write-Host "ACTUAL_PRIVATE_SHA=$actual"
+          if($actual -cne $requested){throw 'PRIVATE_SHA_MISMATCH'}
+          Write-Host "PSEdition=$($PSVersionTable.PSEdition)"
+          Write-Host "PSVersion=$($PSVersionTable.PSVersion)"
+          $before=Get-ChildItem $env:TEMP -Directory -Filter 'Abin-R17UA4-DedicatedLauncher-*' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
+          $exit=0
+          try { & .\build\R17UA4\Invoke-BDedicatedLauncherIsolation.ps1 } catch { $exit=1; Write-Host "MATRIX_EXCEPTION=$($_.Exception.Message)" }
+          $after=Get-ChildItem $env:TEMP -Directory -Filter 'Abin-R17UA4-DedicatedLauncher-*' -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc -Descending
+          $root=$after | Where-Object { $before -notcontains $_.FullName } | Select-Object -First 1
+          if(-not $root){$root=$after | Select-Object -First 1}
+          if($root){
+            Write-Host "EVIDENCE_ROOT=$($root.FullName)"
+            Get-ChildItem (Join-Path $root.FullName 'evidence') -File -ErrorAction SilentlyContinue | Sort-Object Name | ForEach-Object {
+              Write-Host "===== EVIDENCE_FILE=$($_.Name) ====="
+              Get-Content $_.FullName -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
+            }
+          } else { Write-Host 'EVIDENCE_ROOT=NOT_FOUND' }
+          Write-Host "MATRIX_SCRIPT_EXIT=$exit"
+          if($exit -ne 0){throw 'MATRIX_SCRIPT_FAILED'}
