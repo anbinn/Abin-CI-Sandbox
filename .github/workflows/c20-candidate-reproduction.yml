@@ -33,8 +33,11 @@ jobs:
           Write-Host 'PUBLISH=dotnet publish VideoDownloader.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false'
           dotnet publish VideoDownloader.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o "$env:RUNNER_TEMP\A"
           $dir="$env:RUNNER_TEMP\A"
-          $exe=Join-Path $dir '阿斌视频下载器.exe'
-          $dll=Join-Path $dir '阿斌视频下载器.dll'
+          # Construct exact product stem from Unicode code points so the PS5.1 script source remains ASCII-only.
+          $productStem = -join ([int[]](0x963F,0x658C,0x89C6,0x9891,0x4E0B,0x8F7D,0x5668) | ForEach-Object {[char]$_})
+          $exeName=$productStem+'.exe'; $dllName=$productStem+'.dll'
+          $exe=Join-Path $dir $exeName
+          $dll=Join-Path $dir $dllName
           if(!(Test-Path -LiteralPath $exe) -or !(Test-Path -LiteralPath $dll)){throw 'PRODUCT_FILES_NOT_FOUND'}
           $b=[IO.File]::ReadAllBytes($exe); $pe=[BitConverter]::ToInt32($b,0x3c); $n=[BitConverter]::ToUInt16($b,$pe+6); $opt=[BitConverter]::ToUInt16($b,$pe+20); $sec=$pe+24+$opt
           Write-Host "A|EXE_NAME=$([IO.Path]::GetFileName($exe))|EXE_SHA=$((Get-FileHash $exe -Algorithm SHA256).Hash)|SIZE=$($b.Length)|SECTIONS=$n"
