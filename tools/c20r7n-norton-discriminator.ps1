@@ -61,8 +61,24 @@ if($logPresent){
   }
 }
 
-$maxCount=if($observations.Count){($observations|Measure-Object exact_path_count -Maximum).Maximum}else{0}
-$windowSeen=[bool]($observations.processes|Where-Object {$_.hwnd -ne 0})
+# Do not pipe OrderedDictionary observations through Measure-Object property lookup.
+# Windows PowerShell 5.1 can enumerate dictionary entries in a way that loses the
+# expected key-as-property adapter. Read keys explicitly so zero/one/many process
+# samples all aggregate deterministically on the user's Win10 PowerShell 5.1.
+$maxCount=0
+$windowSeen=$false
+foreach($observation in @($observations)){
+  $count=0
+  if($null -ne $observation -and $observation.Contains('exact_path_count')){
+    $count=[int]$observation['exact_path_count']
+  }
+  if($count -gt $maxCount){ $maxCount=$count }
+  if($null -ne $observation -and $observation.Contains('processes')){
+    foreach($proc in @($observation['processes'])){
+      if($null -ne $proc -and $proc.Contains('hwnd') -and [int64]$proc['hwnd'] -ne 0){ $windowSeen=$true }
+    }
+  }
+}
 $osCaption=$null
 try { $osCaption=(Get-CimInstance Win32_OperatingSystem -ErrorAction Stop).Caption } catch { $osCaption='UNKNOWN' }
 $result=[ordered]@{
