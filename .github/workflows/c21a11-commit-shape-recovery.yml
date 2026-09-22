@@ -1,0 +1,47 @@
+name: C21A11 Commit Shape Recovery
+on:
+  push:
+    branches: [ main ]
+    paths: [ '.github/workflows/c21a11-commit-shape-recovery.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout exact private Abin source
+        uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: fea2d4d72f21e1494836c9feec2f6ac7246b89ef
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Prove exact SHA, one commit, scope, host wiring and no truncation
+        shell: pwsh
+        run: |
+          $expected='fea2d4d72f21e1494836c9feec2f6ac7246b89ef'; $baseExpected='e30ae5974f8351b0de4d51dd1b7cbcd83f02aad2'
+          $actual=(git rev-parse HEAD).Trim(); $base=(git rev-parse HEAD^).Trim()
+          Write-Host "SOURCE_SHA=$actual"; Write-Host "PARENT_SHA=$base"
+          if($actual -ne $expected -or $base -ne $baseExpected){throw 'C21A11_EXACT_SOURCE=FAIL'}
+          Write-Host 'C21A11_ONE_COMMIT=PASS'
+          $files=@(git diff --name-only $base HEAD); $allowed=@('Modules/MediaDiscovery/UI/MediaInternalNavigationRow.cs','UI/V14DesignForm.MediaDiscovery.CurrentSource.cs')
+          if($files.Count -ne 2){throw "C21A11_SCOPE=FAIL count=$($files.Count)"}; foreach($f in $files){if($f -notin $allowed){throw "C21A11_SCOPE=FAIL $f"}}
+          Write-Host 'C21A11_SCOPE=PASS'
+          $row=Get-Content 'Modules/MediaDiscovery/UI/MediaInternalNavigationRow.cs' -Raw
+          foreach($token in @('SyncBackHostSurface()','_back.HostSurfaceColor = BackColor','protected override void OnBackColorChanged')){if(-not $row.Contains($token)){throw "C21A11_HOST_WIRING=FAIL row $token"}}
+          $page=Get-Content 'UI/V14DesignForm.MediaDiscovery.CurrentSource.cs' -Raw
+          foreach($token in @('selector.BindTheme(c=>c.HostSurfaceColor=AppTheme.PageBackground)','private async void ApplyMediaPosterPicture','private async Task LoadCurrentSourceHomeAsync')){if(-not $page.Contains($token)){throw "C21A11_HOST_OR_TRUNCATION=FAIL $token"}}
+          if($row.Contains('Parent?.BackColor')){throw 'C21A11_NO_STACKING=FAIL row parent traversal'}
+          Write-Host 'C21A11_HOST_CONTRACT=PASS'; Write-Host 'C21A11_NO_TRUNCATION=PASS'; Write-Host 'C21A11_NO_STACKING=PASS'
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Restore
+        run: dotnet restore VideoDownloader.csproj
+      - name: Release build clean
+        shell: pwsh
+        run: |
+          $output=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1
+          $output | ForEach-Object { Write-Host $_ }
+          if($LASTEXITCODE -ne 0){throw 'C21A11_BUILD=FAIL'}
+          Write-Host 'C21A11_BUILD_CLEAN=PASS'
