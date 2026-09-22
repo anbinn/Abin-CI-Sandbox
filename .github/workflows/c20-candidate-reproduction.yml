@@ -27,7 +27,7 @@ jobs:
           $baseline='474471262da118842db022cf2711b613da681dd0'
           $actual=(git rev-parse HEAD).Trim(); Write-Host "SOURCE_SHA=$actual"; if($actual-ne$baseline){throw 'BASELINE_MISMATCH'}
           if((dotnet --version).Trim()-ne'10.0.401'){throw 'SDK_MISMATCH'}
-          $runtime=(dotnet --info | Select-String '^ Version:\s+10\.0\.12$' | Select-Object -First 1); if(-not$runtime){throw 'RUNTIME_MISMATCH'}
+          $runtimes=dotnet --list-runtimes;if(-not($runtimes|Select-String '^Microsoft\.NETCore\.App 10\.0\.12 ')){throw 'RUNTIME_MISMATCH'};Write-Host 'RUNTIME=10.0.12'
           $sdkRoot=(dotnet --list-sdks|?{$_ -match '^10\.0\.401 '})-replace '^10\.0\.401 \[',''-replace '\]$',''
           $hostModel=Join-Path $sdkRoot '10.0.401\Microsoft.NET.HostModel.dll';$sdkAppHost=Join-Path $sdkRoot '10.0.401\AppHostTemplate\apphost.exe';$pack=Join-Path (Split-Path $sdkRoot -Parent) 'packs\Microsoft.NETCore.App.Host.win-x64\10.0.12\runtimes\win-x64\native\apphost.exe'
           Write-Host "HOSTMODEL_SHA=$((Get-FileHash $hostModel).Hash)|SIZE=$((Get-Item $hostModel).Length)";Write-Host "SDK_APPHOST_SHA=$((Get-FileHash $sdkAppHost).Hash)|SIZE=$((Get-Item $sdkAppHost).Length)";Write-Host "PACK_APPHOST_SHA=$((Get-FileHash $pack).Hash)|SIZE=$((Get-Item $pack).Length)"
