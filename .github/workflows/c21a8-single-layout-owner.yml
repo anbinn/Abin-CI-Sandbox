@@ -1,0 +1,61 @@
+name: C21A8 Single Layout Owner
+on:
+  push:
+    branches: [ main ]
+    paths: [ '.github/workflows/c21a8-single-layout-owner.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout exact private Abin source
+        uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: e30ae5974f8351b0de4d51dd1b7cbcd83f02aad2
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Prove exact source scope and single layout owner
+        shell: pwsh
+        run: |
+          $expected='e30ae5974f8351b0de4d51dd1b7cbcd83f02aad2'
+          $baseExpected='9aa70696b395e68603455fcc6975a42b6f3795d1'
+          $actual=(git rev-parse HEAD).Trim(); $base=(git rev-parse HEAD^).Trim()
+          Write-Host "SOURCE_SHA=$actual"; Write-Host "PARENT_SHA=$base"
+          if($actual -ne $expected){throw 'C21A8_EXACT_SOURCE=FAIL'}
+          if($base -ne $baseExpected){throw 'C21A8_PARENT=FAIL'}
+          $files=@(git diff --name-only $base HEAD)
+          $allowed=@('Modules/MediaDiscovery/UI/MediaPlayerViewport.cs','UI/V14DesignForm.MediaDiscovery.cs')
+          if($files.Count -ne 2){throw "C21A8_SCOPE=FAIL count=$($files.Count)"}
+          foreach($f in $files){if($f -notin $allowed){throw "C21A8_SCOPE=FAIL file=$f"}}
+          Write-Host 'C21A8_BASELINE_SCOPE=PASS'
+          $page=Get-Content 'UI/V14DesignForm.MediaDiscovery.cs' -Raw
+          if($page -match 'LayoutPlayerControls|Controls\["MediaPlayer(Play|Seek|Time|Volume|Fullscreen|Controls)"\]'){throw 'C21A8_PAGE_BOUNDARY=FAIL'}
+          if($page -notmatch 'new Rectangle\(Px\(20\),Px\(60\),Math\.Max\(Px\(320\),w-Px\(40\)\),Math\.Max\(Px\(180\),h-Px\(84\)\)\)'){throw 'C21A8_PAGE_OUTER_GEOMETRY=FAIL'}
+          if($page -notmatch 'MediaPlayerViewport\.Largest16By9\(available\)'){throw 'C21A8_PAGE_16X9=FAIL'}
+          Write-Host 'C21A8_PAGE_BOUNDARY=PASS'
+          $component=Get-Content 'Modules/MediaDiscovery/UI/MediaPlayerViewport.cs' -Raw
+          if($component -match 'override void SetBoundsCore'){throw 'C21A8_SINGLE_OWNER=FAIL SetBoundsCore remains'}
+          if(([regex]::Matches($component,'internal void LayoutToViewport\(')).Count -ne 1){throw 'C21A8_SINGLE_OWNER=FAIL entry count'}
+          foreach($name in @('MediaPlayerPlay','MediaPlayerSeek','MediaPlayerTime','MediaPlayerVolume','MediaPlayerFullscreen')){if($component -notmatch [regex]::Escape("Controls[\"$name\"]")){throw "C21A8_SINGLE_OWNER=FAIL missing $name"}}
+          Write-Host 'C21A8_SINGLE_COMPONENT_OWNER=PASS'
+          $required=@('int inset=Px(24),barHeight=Px(56),icon=Px(32)','play.SetBounds(Px(12),y,icon,icon)','full.SetBounds(Width-Px(12)-icon,y,icon,icon)','volume.SetBounds(full.Left-gap-icon,y,icon,icon)','time.SetBounds(volume.Left-gap-timeWidth,Px(19),timeWidth,Px(20))','int seekLeft=play.Right+Px(16),seekRight=time.Left-Px(16)','seek.SetBounds(seekLeft,Px(23),Math.Max(Px(80),seekRight-seekLeft),Px(10))')
+          foreach($token in $required){if(-not $component.Contains($token)){throw "C21A8_PIXEL_FREEZE=FAIL token=$token"}}
+          Write-Host 'C21A8_PIXEL_FREEZE=PASS'
+          $full=Get-Content 'Modules/MediaDiscovery/UI/MediaFullscreenHost.cs' -Raw
+          if($full -notmatch 'Viewport\.Bounds = ClientRectangle'){throw 'C21A8_FULLSCREEN_CONTRACT=FAIL'}
+          if($component -notmatch 'Parent\.Resize-=ParentViewportChanged;Parent\.Resize\+=ParentViewportChanged' -or $component -notmatch 'Parent\.DpiChangedAfterParent-=ParentDpiChanged;Parent\.DpiChangedAfterParent\+=ParentDpiChanged'){throw 'C21A8_STATE_CONTRACT=FAIL'}
+          Write-Host 'C21A8_STATE_CONTRACT=PASS'
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Restore
+        run: dotnet restore VideoDownloader.csproj
+      - name: Release build clean
+        shell: pwsh
+        run: |
+          $output=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1
+          $output | ForEach-Object { Write-Host $_ }
+          if($LASTEXITCODE -ne 0){throw 'C21A8_BUILD=FAIL'}
+          Write-Host 'C21A8_BUILD_CLEAN=PASS'
