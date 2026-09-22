@@ -1,0 +1,76 @@
+name: C20R7N Win10 delivery package
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/c20r7n-delivery-package.yml']
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: 474471262da118842db022cf2711b613da681dd0
+          token: ${{ secrets.ABIN_PRIVATE_READ_TOKEN }}
+          persist-credentials: false
+          path: product
+      - uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin-CI-Sandbox
+          ref: main
+          path: harness
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.401
+      - name: Build exact Candidate A and complete package
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          cd product
+          if((git rev-parse HEAD).Trim() -ne '474471262da118842db022cf2711b613da681dd0'){throw 'SOURCE_SHA_MISMATCH'}
+          if((dotnet --version).Trim() -ne '10.0.401'){throw 'SDK_MISMATCH'}
+          $runtime=(dotnet --list-runtimes | Where-Object { $_ -match '^Microsoft\.NETCore\.App 10\.0\.12 \[' } | Select-Object -First 1); if(-not $runtime){throw 'RUNTIME_MISMATCH'}
+          dotnet publish VideoDownloader.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o "$env:RUNNER_TEMP\candidate" | Out-Host
+          if($LASTEXITCODE-ne0){throw 'PUBLISH_FAILED'}
+          $stem=-join([int[]](0x963F,0x658C,0x89C6,0x9891,0x4E0B,0x8F7D,0x5668)|%{[char]$_}); $built=Join-Path "$env:RUNNER_TEMP\candidate" ($stem+'.exe')
+          $expected='18599C12A9A00E75F13A58F48E355F6F6FF20DBAEE049D8E856373AF5006A358'
+          if((Get-FileHash $built -Algorithm SHA256).Hash -ne $expected -or (Get-Item $built).Length -ne 279552){throw 'CANDIDATE_A_IDENTITY_MISMATCH'}
+          $pkg=Join-Path $env:GITHUB_WORKSPACE 'C20R7N-Win10-Norton-Discriminator'; New-Item -ItemType Directory -Path $pkg|Out-Null
+          Copy-Item "$env:RUNNER_TEMP\candidate\*" $pkg -Recurse
+          Rename-Item -LiteralPath (Join-Path $pkg ($stem+'.exe')) -NewName 'Abin.exe'
+          Copy-Item "$env:GITHUB_WORKSPACE\harness\tools\c20r7n-norton-discriminator.ps1" $pkg
+          Copy-Item "$env:GITHUB_WORKSPACE\harness\tools\c20r7n-two-run-controller.ps1" $pkg
+          Copy-Item "$env:GITHUB_WORKSPACE\harness\tools\c20r7n-run-on-win10.cmd" $pkg
+          $h=(Get-FileHash (Join-Path $pkg 'Abin.exe') -Algorithm SHA256).Hash; if($h-ne$expected){throw 'PACKAGED_SHA_MISMATCH'}
+          "CandidateA_SHA256=$h`r`nCandidateA_Size=$((Get-Item (Join-Path $pkg 'Abin.exe')).Length)`r`nSource_SHA=474471262da118842db022cf2711b613da681dd0`r`nSDK=10.0.401`r`nRuntime=10.0.12" | Set-Content (Join-Path $pkg 'IDENTITY.txt') -Encoding ascii
+          @'
+C20R7N Norton discriminator
+
+Safety: this package never disables Norton and never changes Norton exclusions automatically.
+1. Double-click c20r7n-run-on-win10.cmd. Run 1 is read-only and records the current Norton decision.
+2. If a second Norton state is required, the tool stops at CONFIRMATION_REQUIRED.txt. Do not change anything unless PM/user explicitly approves the minimal reversible file-specific Norton exception change.
+3. After explicit approval and the Norton state has been changed manually for Abin.exe only, double-click the same CMD once more. It records Run 2 and writes c20r7n-summary.json.
+4. Restore the Norton setting to its original state after Run 2. The package itself never modifies Norton.
+
+Outputs: c20r7n-run1.json, c20r7n-run2.json, c20r7n-summary.json, CONFIRMATION_REQUIRED.txt when applicable.
+'@ | Set-Content (Join-Path $pkg 'README.txt') -Encoding utf8
+          Compress-Archive -Path "$pkg\*" -DestinationPath "$env:GITHUB_WORKSPACE\C20R7N-Win10-Norton-Discriminator.zip" -Force
+      - name: Offline package self-test
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $zip="$env:GITHUB_WORKSPACE\C20R7N-Win10-Norton-Discriminator.zip"; if(!(Test-Path $zip)){throw 'ZIP_MISSING'}
+          $d="$env:RUNNER_TEMP\verify"; Expand-Archive $zip $d -Force
+          $e=Join-Path $d 'Abin.exe'; if((Get-FileHash $e -Algorithm SHA256).Hash -ne '18599C12A9A00E75F13A58F48E355F6F6FF20DBAEE049D8E856373AF5006A358'){throw 'ZIP_IDENTITY_MISMATCH'}
+          foreach($f in @('c20r7n-norton-discriminator.ps1','c20r7n-two-run-controller.ps1','c20r7n-run-on-win10.cmd','IDENTITY.txt','README.txt')){if(!(Test-Path (Join-Path $d $f))){throw "MISSING_$f"}}
+          powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $d 'c20r7n-two-run-controller.ps1') -PackageDir $d -SelfTest
+          if($LASTEXITCODE-ne0){throw 'CONTROLLER_SELFTEST_FAILED'}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: C20R7N-Win10-Norton-Discriminator
+          path: C20R7N-Win10-Norton-Discriminator.zip
+          if-no-files-found: error
