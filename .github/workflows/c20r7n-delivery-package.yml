@@ -73,10 +73,63 @@ jobs:
           Expand-Archive $zip $d -Force
           if ((Get-FileHash (Join-Path $d 'Abin.exe') -Algorithm SHA256).Hash -ne '18599C12A9A00E75F13A58F48E355F6F6FF20DBAEE049D8E856373AF5006A358') { throw 'ZIP_IDENTITY_MISMATCH' }
           foreach ($f in @('c20r7n-norton-discriminator.ps1','c20r7n-two-run-controller.ps1','c20r7n-run-on-win10.cmd','IDENTITY.txt','README.txt')) { if (!(Test-Path (Join-Path $d $f))) { throw "MISSING_$f" } }
-          & (Join-Path $d 'c20r7n-run-on-win10.cmd') --self-test
+          Push-Location "$env:WINDIR\System32"
+          try { & (Join-Path $d 'c20r7n-run-on-win10.cmd') --self-test } finally { Pop-Location }
           if ($LASTEXITCODE -ne 0) { throw "CMD_LAUNCHER_SELFTEST_FAILED_$LASTEXITCODE" }
           if (!(Test-Path (Join-Path $d 'c20r7n-summary.json'))) { throw 'CMD_LAUNCHER_SUMMARY_MISSING' }
           if (Test-Path (Join-Path $d 'c20r7n-error.txt')) { throw 'CMD_LAUNCHER_ERROR_FILE_PRESENT' }
+      - name: User-path regression matrix
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $zip = "$env:GITHUB_WORKSPACE\C20R7N-Win10-Norton-Discriminator.zip"
+          $cases = @(
+            (Join-Path $env:USERPROFILE 'OneDrive\Desktop\C20R7N-Win10-Norton-Discriminator\C20R7N-Win10-Norton-Discriminator'),
+            (Join-Path $env:USERPROFILE 'OneDrive\Desktop\C20R7N Test Space\C20R7N-Win10-Norton-Discriminator')
+          )
+          foreach ($d in $cases) {
+            if (Test-Path $d) { Remove-Item $d -Recurse -Force }
+            New-Item -ItemType Directory -Path $d -Force | Out-Null
+            Expand-Archive $zip $d -Force
+            Push-Location "$env:WINDIR\System32"
+            try { & (Join-Path $d 'c20r7n-run-on-win10.cmd') --self-test } finally { Pop-Location }
+            if ($LASTEXITCODE -ne 0) { throw "USER_PATH_CMD_FAILED_$LASTEXITCODE::$d" }
+            if (!(Test-Path (Join-Path $d 'c20r7n-summary.json'))) { throw "USER_PATH_SUMMARY_MISSING::$d" }
+            if (!(Test-Path (Join-Path $d 'c20r7n-console.log'))) { throw "USER_PATH_CONSOLE_LOG_MISSING::$d" }
+            if (Test-Path (Join-Path $d 'c20r7n-error.txt')) { throw "USER_PATH_UNEXPECTED_ERROR_FILE::$d" }
+          }
+      - name: Failure persistence regression
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $zip = "$env:GITHUB_WORKSPACE\C20R7N-Win10-Norton-Discriminator.zip"
+          $d = Join-Path $env:USERPROFILE 'OneDrive\Desktop\C20R7N-Failure-Persistence\C20R7N-Win10-Norton-Discriminator'
+          if (Test-Path $d) { Remove-Item $d -Recurse -Force }
+          New-Item -ItemType Directory -Path $d -Force | Out-Null
+          Expand-Archive $zip $d -Force
+          Add-Content -LiteralPath (Join-Path $d 'Abin.exe') -Value 'X' -NoNewline
+          $cmd = Join-Path $d 'c20r7n-run-on-win10.cmd'
+          $psi = New-Object System.Diagnostics.ProcessStartInfo
+          $psi.FileName = 'cmd.exe'
+          $psi.Arguments = "/d /c call `"$cmd`" --self-test"
+          $psi.WorkingDirectory = "$env:WINDIR\System32"
+          $psi.UseShellExecute = $false
+          $psi.RedirectStandardInput = $true
+          $psi.RedirectStandardOutput = $true
+          $psi.RedirectStandardError = $true
+          $p = New-Object System.Diagnostics.Process
+          $p.StartInfo = $psi
+          [void]$p.Start()
+          $p.StandardInput.WriteLine('x')
+          $p.StandardInput.Close()
+          $stdout = $p.StandardOutput.ReadToEnd()
+          $stderr = $p.StandardError.ReadToEnd()
+          $p.WaitForExit()
+          if ($p.ExitCode -eq 0) { throw 'FAILURE_PERSISTENCE_EXPECTED_NONZERO' }
+          if (!(Test-Path (Join-Path $d 'c20r7n-error.txt'))) { throw "FAILURE_ERROR_FILE_MISSING`n$stdout`n$stderr" }
+          if (!(Test-Path (Join-Path $d 'c20r7n-console.log'))) { throw 'FAILURE_CONSOLE_LOG_MISSING' }
+          $err = Get-Content (Join-Path $d 'c20r7n-error.txt') -Raw
+          if ($err -notmatch 'CANDIDATE_A_IDENTITY_FAILED') { throw "FAILURE_ERROR_CONTENT_WRONG::$err" }
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
