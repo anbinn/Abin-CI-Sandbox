@@ -1,0 +1,57 @@
+name: C21A6 Nullability Closure Build
+on:
+  push:
+    branches: [ main ]
+    paths: [ '.github/workflows/c21a6-nullability-build.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout exact private Abin source
+        uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: 9aa70696b395e68603455fcc6975a42b6f3795d1
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Prove exact source and C21A6 scope
+        shell: pwsh
+        run: |
+          $expected='9aa70696b395e68603455fcc6975a42b6f3795d1'
+          $baseExpected='c9cbb5ece49d3d09424923f1cb5519422dca8844'
+          $actual=(git rev-parse HEAD).Trim()
+          $base=(git rev-parse HEAD^).Trim()
+          Write-Host "SOURCE_SHA=$actual"
+          Write-Host "PARENT_SHA=$base"
+          if($actual -ne $expected){throw 'C21A6_EXACT_SOURCE=FAIL'}
+          if($base -ne $baseExpected){throw 'C21A6_PARENT=FAIL'}
+          Write-Host 'C21A6_EXACT_SOURCE=PASS'
+          $files=@(git diff --name-only $base HEAD)
+          if($files.Count -ne 1 -or $files[0] -ne 'Modules/MediaDiscovery/UI/MediaPlayerViewport.cs'){throw "C21A6_SCOPE=FAIL files=$($files -join ',')"}
+          Write-Host 'C21A6_SCOPE=PASS'
+          $diff=(git diff -U0 $base HEAD -- 'Modules/MediaDiscovery/UI/MediaPlayerViewport.cs') -join "`n"
+          if($diff -match '#pragma|NoWarn|!\s*[;,)\.]'){throw 'C21A6_SUPPRESSION=FAIL'}
+          if($diff -notmatch 'e\.Control is not null'){throw 'C21A6_NULL_GUARD=FAIL'}
+          Write-Host 'C21A6_WARNING_ROOT_FIX=PASS'
+          $geometryTokens='SetBounds|\.Location\s*=|\.Size\s*=|Padding\s*=|Dock\s*=|Anchor\s*='
+          $added=@(git diff -U0 $base HEAD -- 'Modules/MediaDiscovery/UI/MediaPlayerViewport.cs' | Where-Object {$_ -match '^\+(?!\+)'})
+          if(($added -join "`n") -match $geometryTokens){throw 'C21A6_GEOMETRY_FREEZE=FAIL'}
+          if($diff -match 'HostSurfaceColor'){throw 'C21A6_HOST_CONTRACT_MUTATION=FAIL'}
+          Write-Host 'C21A6_ZERO_BEHAVIOR_VISUAL_DELTA=PASS'
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Restore
+        run: dotnet restore VideoDownloader.csproj
+      - name: Release build clean
+        shell: pwsh
+        run: |
+          $output = dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1
+          $output | ForEach-Object { Write-Host $_ }
+          if($LASTEXITCODE -ne 0){throw 'C21A6_BUILD=FAIL'}
+          $text=$output -join "`n"
+          if($text -match 'CS8604'){throw 'C21A6_CS8604=FAIL'}
+          Write-Host 'C21A6_CS8604=ABSENT'
+          Write-Host 'C21A6_BUILD_CLEAN=PASS'
