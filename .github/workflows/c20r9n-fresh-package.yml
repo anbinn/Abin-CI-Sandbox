@@ -1,0 +1,138 @@
+name: C20R9N Fresh V1.6 package
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/c20r9n-fresh-package.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact private product source
+        uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: 474471262da118842db022cf2711b613da681dd0
+          token: ${{ secrets.ABIN_PRIVATE_READ_TOKEN }}
+          persist-credentials: false
+          path: product
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.401'
+
+      - name: Build fresh package and record identity
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location product
+          $source = (git rev-parse HEAD).Trim()
+          Write-Host "SOURCE_SHA=$source"
+          if ($source -ne '474471262da118842db022cf2711b613da681dd0') { throw 'SOURCE_SHA_MISMATCH' }
+          $sdk = (dotnet --version).Trim()
+          Write-Host "SDK=$sdk"
+          if ($sdk -ne '10.0.401') { throw 'SDK_MISMATCH' }
+          $runtimeLine = dotnet --list-runtimes | Where-Object { $_ -match '^Microsoft\.NETCore\.App 10\.0\.12 \[' } | Select-Object -First 1
+          if (-not $runtimeLine) { throw 'RUNTIME_10_0_12_MISSING' }
+          Write-Host "RUNTIME=$runtimeLine"
+
+          $publish = Join-Path $env:RUNNER_TEMP 'c20r9n-publish'
+          dotnet publish VideoDownloader.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o $publish
+          if ($LASTEXITCODE -ne 0) { throw 'PUBLISH_FAILED' }
+
+          $stem = -join ([int[]](0x963F,0x658C,0x89C6,0x9891,0x4E0B,0x8F7D,0x5668) | ForEach-Object { [char]$_ })
+          $exe = Join-Path $publish ($stem + '.exe')
+          if (!(Test-Path -LiteralPath $exe)) { throw 'PRODUCT_EXE_MISSING' }
+          $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
+          $size = (Get-Item -LiteralPath $exe).Length
+          Write-Host "PRODUCT_EXE_SHA256=$hash"
+          Write-Host "PRODUCT_EXE_SIZE=$size"
+          if ($hash -ne '18599C12A9A00E75F13A58F48E355F6F6FF20DBAEE049D8E856373AF5006A358') { throw 'CANDIDATE_A_HASH_MISMATCH' }
+          if ($size -ne 279552) { throw 'CANDIDATE_A_SIZE_MISMATCH' }
+
+          $pkg = Join-Path $env:GITHUB_WORKSPACE 'C20R9N-V1.6-Fresh-No-Norton-Test'
+          New-Item -ItemType Directory -Path $pkg -Force | Out-Null
+          Copy-Item (Join-Path $publish '*') $pkg -Recurse -Force
+          @(
+            'Dispatch=V16-T26-R17U-A9-NORTON-REMOVED-FRESH-PACKAGE-C20R9N',
+            'Source_SHA=474471262da118842db022cf2711b613da681dd0',
+            'SDK=10.0.401',
+            'Runtime=10.0.12',
+            'RID=win-x64',
+            'Configuration=Release',
+            'SelfContained=true',
+            'PublishSingleFile=false',
+            "ProductExe_SHA256=$hash",
+            "ProductExe_Size=$size"
+          ) | Set-Content (Join-Path $pkg 'IDENTITY.txt') -Encoding ascii
+          @(
+            'C20R9N fresh V1.6 package for Win10 no-Norton startup acceptance.',
+            'This package was freshly published from the exact locked private product SOURCE_SHA.',
+            'Do not overwrite the historical V1.6-final-acceptance evidence folder.',
+            'Extract this ZIP to a NEW folder, then ordinary-double-click the product EXE once.'
+          ) | Set-Content (Join-Path $pkg 'README-C20R9N.txt') -Encoding utf8
+          Compress-Archive -Path (Join-Path $pkg '*') -DestinationPath (Join-Path $env:GITHUB_WORKSPACE 'C20R9N-V1.6-Fresh-No-Norton-Test.zip') -Force
+
+      - name: Fresh package executable smoke
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pkg = Join-Path $env:GITHUB_WORKSPACE 'C20R9N-V1.6-Fresh-No-Norton-Test'
+          $stem = -join ([int[]](0x963F,0x658C,0x89C6,0x9891,0x4E0B,0x8F7D,0x5668) | ForEach-Object { [char]$_ })
+          $exe = Join-Path $pkg ($stem + '.exe')
+          $p = Start-Process -FilePath $exe -WorkingDirectory $pkg -PassThru
+          $window = $false
+          $title = ''
+          try {
+            for ($i=0; $i -lt 24; $i++) {
+              Start-Sleep -Milliseconds 500
+              $p.Refresh()
+              if ($p.HasExited) { throw "PRODUCT_EXITED_EARLY_$($p.ExitCode)" }
+              if ($p.MainWindowHandle -ne 0) { $window = $true; $title = $p.MainWindowTitle; break }
+            }
+            if (-not $window) { throw 'USABLE_WINDOW_NOT_SEEN_WITHIN_12S' }
+            $same = @(Get-Process | Where-Object { try { $_.Path -eq $exe } catch { $false } })
+            Write-Host "USABLE_WINDOW=True"
+            Write-Host "WINDOW_TITLE=$title"
+            Write-Host "EXACT_PATH_COUNT=$($same.Count)"
+            if ($same.Count -ne 1) { throw "DUPLICATE_PROCESS_COUNT_$($same.Count)" }
+            Write-Host 'DUPLICATE=False'
+          }
+          finally {
+            Get-Process | Where-Object { try { $_.Path -eq $exe } catch { $false } } | Stop-Process -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Verify ZIP identity after extraction
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Join-Path $env:GITHUB_WORKSPACE 'C20R9N-V1.6-Fresh-No-Norton-Test.zip'
+          if (!(Test-Path $zip)) { throw 'ZIP_MISSING' }
+          $verify = Join-Path $env:RUNNER_TEMP 'c20r9n-verify'
+          Expand-Archive $zip $verify -Force
+          $stem = -join ([int[]](0x963F,0x658C,0x89C6,0x9891,0x4E0B,0x8F7D,0x5668) | ForEach-Object { [char]$_ })
+          $exe = Join-Path $verify ($stem + '.exe')
+          $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
+          $size = (Get-Item -LiteralPath $exe).Length
+          if ($hash -ne '18599C12A9A00E75F13A58F48E355F6F6FF20DBAEE049D8E856373AF5006A358') { throw 'ZIP_EXE_HASH_MISMATCH' }
+          if ($size -ne 279552) { throw 'ZIP_EXE_SIZE_MISMATCH' }
+          foreach ($f in @('IDENTITY.txt','README-C20R9N.txt','阿斌视频下载器.dll','libmpv-2.dll')) {
+            if (!(Test-Path -LiteralPath (Join-Path $verify $f))) { throw "ZIP_REQUIRED_FILE_MISSING_$f" }
+          }
+          Write-Host "ZIP_PRODUCT_EXE_SHA256=$hash"
+          Write-Host "ZIP_PRODUCT_EXE_SIZE=$size"
+          Write-Host 'FRESH_PACKAGE_VERIFY=PASS'
+
+      - name: Upload fresh package
+        uses: actions/upload-artifact@v4
+        with:
+          name: C20R9N-V1.6-Fresh-No-Norton-Test
+          path: C20R9N-V1.6-Fresh-No-Norton-Test.zip
+          if-no-files-found: error
