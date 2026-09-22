@@ -119,11 +119,12 @@ jobs:
           Expand-Archive $zip $verify -Force
           $stem = -join ([int[]](0x963F,0x658C,0x89C6,0x9891,0x4E0B,0x8F7D,0x5668) | ForEach-Object { [char]$_ })
           $exe = Join-Path $verify ($stem + '.exe')
+          $dll = $stem + '.dll'
           $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
           $size = (Get-Item -LiteralPath $exe).Length
           if ($hash -ne '18599C12A9A00E75F13A58F48E355F6F6FF20DBAEE049D8E856373AF5006A358') { throw 'ZIP_EXE_HASH_MISMATCH' }
           if ($size -ne 279552) { throw 'ZIP_EXE_SIZE_MISMATCH' }
-          foreach ($f in @('IDENTITY.txt','README-C20R9N.txt','阿斌视频下载器.dll','libmpv-2.dll')) {
+          foreach ($f in @('IDENTITY.txt','README-C20R9N.txt',$dll,'libmpv-2.dll')) {
             if (!(Test-Path -LiteralPath (Join-Path $verify $f))) { throw "ZIP_REQUIRED_FILE_MISSING_$f" }
           }
           Write-Host "ZIP_PRODUCT_EXE_SHA256=$hash"
