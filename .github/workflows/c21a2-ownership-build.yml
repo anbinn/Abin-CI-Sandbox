@@ -16,6 +16,7 @@ jobs:
           $raw=Invoke-RestMethod -Headers @{Authorization="Bearer $env:GITHUB_TOKEN";Accept='application/vnd.github.raw+json'} -Uri "https://api.github.com/repos/${env:GITHUB_REPOSITORY}/contents/.ci/source-sha.txt?ref=${env:GITHUB_SHA}"
           $sha=([string]$raw).Trim()
           if($sha -notmatch '^[0-9a-f]{40}$'){throw "Invalid SOURCE_SHA: '$sha'"}
+          if($sha -ne 'ec2737e238e54283f53396b9bff9259d2658d70d'){throw "C21A3_EXACT_SOURCE=FAIL expected ec2737e238e54283f53396b9bff9259d2658d70d actual $sha"}
           "sha=$sha" >> $env:GITHUB_OUTPUT
           Write-Host "REQUESTED_SOURCE_SHA=$sha"
       - name: Checkout exact private Abin source
@@ -31,20 +32,68 @@ jobs:
         run: |
           $actual=(git rev-parse HEAD).Trim()
           Write-Host "SOURCE_SHA=$actual"
-          if($actual -ne '${{ steps.source.outputs.sha }}'){throw 'Source SHA mismatch'}
-      - name: C21A2 ownership and preservation gate
+          if($actual -ne 'ec2737e238e54283f53396b9bff9259d2658d70d'){throw 'C21A3_EXACT_SOURCE=FAIL source SHA mismatch'}
+          Write-Host 'C21A3_EXACT_SOURCE=PASS'
+      - name: C21A2 ownership and fail-closed scope gate
         shell: pwsh
         run: |
-          $expected=@('MediaDetailRouteSelector.cs','MediaFullscreenHost.cs','MediaIconLibrary.cs','MediaInternalNavigationRow.cs','MediaPlayerViewport.cs')
-          foreach($name in $expected){
-            if(-not(Test-Path (Join-Path 'Modules/MediaDiscovery/UI' $name))){throw "C21A2_OWNERSHIP=FAIL missing module UI $name"}
-            if(Test-Path (Join-Path 'UI/Controls' $name)){throw "C21A2_OWNERSHIP=FAIL legacy global owner remains $name"}
+          $expected=[ordered]@{
+            'UI/Controls/MediaDetailRouteSelector.cs'='Modules/MediaDiscovery/UI/MediaDetailRouteSelector.cs'
+            'UI/Controls/MediaFullscreenHost.cs'='Modules/MediaDiscovery/UI/MediaFullscreenHost.cs'
+            'UI/Controls/MediaIconLibrary.cs'='Modules/MediaDiscovery/UI/MediaIconLibrary.cs'
+            'UI/Controls/MediaInternalNavigationRow.cs'='Modules/MediaDiscovery/UI/MediaInternalNavigationRow.cs'
+            'UI/Controls/MediaPlayerViewport.cs'='Modules/MediaDiscovery/UI/MediaPlayerViewport.cs'
+          }
+          foreach($newPath in $expected.Values){
+            if(-not(Test-Path $newPath)){throw "C21A2_OWNERSHIP=FAIL missing module UI $newPath"}
+          }
+          foreach($oldPath in $expected.Keys){
+            if(Test-Path $oldPath){throw "C21A2_OWNERSHIP=FAIL legacy global owner remains $oldPath"}
           }
           Write-Host 'C21A2_OWNERSHIP=PASS'
-          $changed=git diff --name-status '${{ steps.source.outputs.sha }}^' '${{ steps.source.outputs.sha }}'
+
+          $base=(git rev-parse 'HEAD^').Trim()
+          $head=(git rev-parse 'HEAD').Trim()
+          $rows=@(git diff --name-status -M100% $base $head)
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
-          Write-Host $changed
+          Write-Host "C21A2_SCOPE_BASE=$base"
+          Write-Host "C21A2_SCOPE_HEAD=$head"
+          Write-Host "C21A2_SCOPE_CHANGED_COUNT=$($rows.Count)"
+          $seen=@{}
+          foreach($row in $rows){
+            Write-Host "C21A2_SCOPE_DIFF=$row"
+            $parts=$row -split "`t"
+            if($parts.Count -ne 3){throw "C21A2_SCOPE=FAIL expected rename triplet: $row"}
+            if($parts[0] -ne 'R100'){throw "C21A2_SCOPE=FAIL non-R100 change: $row"}
+            $old=$parts[1]; $new=$parts[2]
+            if(-not $expected.Contains($old)){throw "C21A2_SCOPE=FAIL unauthorized old path: $old"}
+            if($expected[$old] -ne $new){throw "C21A2_SCOPE=FAIL unauthorized rename: $old -> $new"}
+            if($seen.ContainsKey($old)){throw "C21A2_SCOPE=FAIL duplicate rename: $old"}
+            $seen[$old]=$true
+            $oldBlob=(git rev-parse "$base`:$old").Trim()
+            $newBlob=(git rev-parse "$head`:$new").Trim()
+            Write-Host "C21A2_SCOPE_BLOB=$oldBlob $old -> $newBlob $new"
+            if($oldBlob -ne $newBlob){throw "C21A2_SCOPE=FAIL blob/content mismatch: $old -> $new"}
+          }
+          if($rows.Count -ne $expected.Count){throw "C21A2_SCOPE=FAIL changed count $($rows.Count), expected $($expected.Count)"}
+          foreach($old in $expected.Keys){if(-not $seen.ContainsKey($old)){throw "C21A2_SCOPE=FAIL missing authorized rename: $old"}}
           Write-Host 'C21A2_SCOPE=PASS'
+
+          function Test-C21A2ScopeRows([string[]]$TestRows){
+            if($TestRows.Count -ne $expected.Count){return $false}
+            $testSeen=@{}
+            foreach($testRow in $TestRows){
+              $p=$testRow -split "`t"
+              if($p.Count -ne 3 -or $p[0] -ne 'R100'){return $false}
+              if(-not $expected.Contains($p[1]) -or $expected[$p[1]] -ne $p[2] -or $testSeen.ContainsKey($p[1])){return $false}
+              $testSeen[$p[1]]=$true
+            }
+            foreach($old in $expected.Keys){if(-not $testSeen.ContainsKey($old)){return $false}}
+            return $true
+          }
+          $negative=@($rows)+@("M`tUI/Controls/UnauthorizedScopeProbe.cs")
+          if(Test-C21A2ScopeRows $negative){throw 'C21A3_NEGATIVE_PROOF=FAIL corrupted scope was accepted'}
+          Write-Host 'C21A3_NEGATIVE_PROOF=PASS synthetic extra-file mutation rejected without product mutation'
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with: { dotnet-version: '10.0.x' }
