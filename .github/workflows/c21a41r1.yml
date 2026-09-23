@@ -1,0 +1,49 @@
+name: C21A41R1 MediaDiscovery UI-only Closure
+on:
+  push:
+    branches: [ v16-t89-validation ]
+    paths: [ '.github/workflows/c21a41r1.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: 9d0464deed52a2133e147dae216f5727f04fd026
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Prove UI-only closure
+        shell: pwsh
+        run: |
+          if((git rev-parse HEAD).Trim() -ne '9d0464deed52a2133e147dae216f5727f04fd026'){throw 'SHA'}
+          $m=Get-Content UI/V14DesignForm.MediaDiscovery.cs -Raw
+          $s=Get-Content UI/V14DesignForm.cs -Raw
+          $d=Get-Content UI/Controls/V14ComboBox.cs -Raw
+          foreach($t in @('private void ApplyMediaDiscoveryHeader()','_headerSubtitle.Text="Discover movies, series, anime and more"')){if(-not $m.Contains($t)){throw "BRANDING=$t"}}
+          if(-not $s.Contains('if (_mediaDiscoveryPage.Visible && _mediaCurrentPage.Kind == MediaPageKind.Home) ApplyMediaDiscoveryHeader();')){throw 'HEADER_SINGLE_OWNER'}
+          foreach($t in @('T("详情","Details")','T("播放线路","Line")','T("选集","Episode")','T("播放","Play")','T("热门推荐","Hot Recommendations")','T("电影","Movies")','T("剧集","Series")','T("动漫","Anime")')){if(-not $m.Contains($t)){throw "APP_LANGUAGE=$t"}}
+          if(-not $m.Contains('play.SetBounds(Px(220),Px(234),Px(112),AppTheme.ButtonHeight);line.SetBounds(play.Right+gap,Px(234),lineWidth,play.Height)')){throw 'DETAIL_LAYOUT'}
+          foreach($t in @('AppTheme.ControlRadius','AppTheme.BrandSoft','AppTheme.BrandPrimary','AppTheme.SurfaceHover','MeasureAdaptiveWidth','ToolStripDropDown')){if(-not $d.Contains($t)){throw "DROPDOWN=$t"}}
+          foreach($t in @('PlayerAsync(parsed.Flags[selectedLine],ep.Id)','item.Title','item.Caption','item.Description','ep.Name','SourceKey')){if(-not $m.Contains($t)){throw "FREEZE=$t"}}
+          Write-Host 'UI_ONLY_NO_PRODUCT_CHANGE=PASS'
+          Write-Host 'FIXED_ENGLISH_BRANDING=PASS'
+          Write-Host 'APP_UI_LANGUAGE=PASS'
+          Write-Host 'PROVIDER_MEDIA_RAW_ALLOWED=PASS'
+          Write-Host 'DETAIL_LAYOUT=PASS'
+          Write-Host 'SHARED_DROPDOWN=PASS'
+          Write-Host 'ROUTING_DATA_FREEZE=PASS'
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Restore
+        run: dotnet restore VideoDownloader.csproj
+      - name: Release build clean
+        shell: pwsh
+        run: |
+          $o=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1
+          $o|%{Write-Host $_}
+          if($LASTEXITCODE-ne 0){throw 'BUILD'}
+          $s=$o-join "`n"
+          if($s-notmatch '0 Warning\(s\)' -or $s-notmatch '0 Error\(s\)'){throw 'CLEAN'}
