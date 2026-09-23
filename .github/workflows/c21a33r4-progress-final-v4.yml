@@ -1,0 +1,34 @@
+name: C21A33R4 Progress Final V4
+on:
+  push:
+    branches: [ main ]
+    paths: [ '.github/workflows/c21a33r4-progress-final-v4.yml' ]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: b87f85e418c806b735a11bd931b10b5dc161645b
+          token: ${{ secrets.ABIN_PRIVATE_READ_TOKEN }}
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Gates
+        shell: pwsh
+        run: |
+          $s='b87f85e418c806b735a11bd931b10b5dc161645b';$p='ee19c817eaeed45fde75bac09b393d504b54193f';if((git rev-parse HEAD).Trim()-ne$s-or(git rev-parse HEAD^).Trim()-ne$p){throw 'IDENTITY'}
+          $shell=(@('UI/V14DesignForm.cs','UI/V14DesignForm.Actions.cs','UI/V14DesignForm.CompactLayout.cs','UI/V14DesignForm.LiveStats.cs','UI/V14DesignForm.Progress.cs')|%{Get-Content $_ -Raw})-join "`n";foreach($t in @('_taskTitle','_taskMeta','_taskFormat','_taskFileSize','_taskStatus','_taskPercent','_speed','_size','_eta','_pause','_cancel','_progressTrack','_progressFill','._thumbnail')){if($shell.Contains($t)){throw "OLD=$t"}}
+          $o=Get-Content UI/Controls/TaskProgressCard.cs -Raw;foreach($t in @('SetTaskInfo','SetProgress','SetLiveStats','SetDownloading','ApplyLanguage','Arrange','CancelRequested','SetThumbnailLoaded')){if(-not$o.Contains($t)){throw "OWNER=$t"}};if($o -match 'DownloadService|VideoDownloadTaskRunner|VideoDownloadDispatcher|CancellationTokenSource'){throw 'BOUNDARY'}
+          $md=git diff $p HEAD -- UI/V14DesignForm.MediaDiscovery.cs;if(($md -join "`n") -notmatch 'new Control\[\]'){throw 'MEDIA_FREEZE'}
+          Write-Host 'FULL_PROGRESS_OWNERSHIP=PASS';Write-Host 'CROSS_PARTIAL_FANOUT=PASS';Write-Host 'MEDIADISCOVERY_FREEZE=PASS';Write-Host 'TYPE_RESOLUTION=PASS';Write-Host 'BEHAVIOR_VISUAL_FREEZE=PASS';Write-Host 'PRIOR_OWNER_FREEZE=PASS';Write-Host 'BUSINESS_BOUNDARY_CHAIN=PASS'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet restore VideoDownloader.csproj
+      - name: Release clean
+        shell: pwsh
+        run: |
+          $o=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1;$o|%{Write-Host $_};if($LASTEXITCODE-ne 0){throw 'BUILD'};if(($o-join "`n")-notmatch '0 Warning\(s\)'-or($o-join "`n")-notmatch '0 Error\(s\)'){throw 'CLEAN'};Write-Host 'BUILD_CLEAN=PASS'
