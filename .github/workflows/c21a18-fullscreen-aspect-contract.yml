@@ -25,11 +25,11 @@ jobs:
           if($actual -ne $expected -or $base -ne $baseExpected){throw 'C21A18_EXACT_SOURCE=FAIL'}
           $files=@(git diff --name-only $base HEAD)
           if($files.Count -ne 1 -or $files[0] -ne 'Modules/MediaDiscovery/UI/MediaFullscreenHost.cs'){throw "C21A18_SCOPE=FAIL $($files -join ',')"}
-          $host=Get-Content 'Modules/MediaDiscovery/UI/MediaFullscreenHost.cs' -Raw
-          foreach($token in @('LayoutViewport()','Largest16By9(ClientRectangle)','Viewport.Bounds = bounds','bounds.Left + (bounds.Width - width) / 2','bounds.Top + (bounds.Height - height) / 2')){if(-not $host.Contains($token)){throw "C21A18_ASPECT_FIT=FAIL $token"}}
+          $hostSource=Get-Content 'Modules/MediaDiscovery/UI/MediaFullscreenHost.cs' -Raw
+          foreach($token in @('LayoutViewport()','Largest16By9(ClientRectangle)','Viewport.Bounds = bounds','bounds.Left + (bounds.Width - width) / 2','bounds.Top + (bounds.Height - height) / 2')){if(-not $hostSource.Contains($token)){throw "C21A18_ASPECT_FIT=FAIL $token"}}
           $patch=(git diff $base HEAD) -join "`n"
           foreach($bad in @('BackColor =','Region =','CornerRadius','mpv_set_option_string','keepaspect','video-unscaled','panscan','video-aspect-override','RenderSurface.Dock','LayoutInternalPage')){if($patch -match ('^\+.*'+[regex]::Escape($bad))){throw "C21A18_FREEZE=FAIL $bad"}}
-          if((Select-String -InputObject $host -Pattern 'Viewport\.Bounds\s*=' -AllMatches).Matches.Count -ne 1){throw 'C21A18_GEOMETRY_OWNER=FAIL'}
+          if((Select-String -InputObject $hostSource -Pattern 'Viewport\.Bounds\s*=' -AllMatches).Matches.Count -ne 1){throw 'C21A18_GEOMETRY_OWNER=FAIL'}
           Write-Host 'C21A18_ONE_COMMIT=PASS'; Write-Host 'C21A18_FULLSCREEN_OWNER_ONLY=PASS'; Write-Host 'C21A18_ASPECT_FIT_CONTRACT=PASS'; Write-Host 'C21A18_NORMAL_FREEZE=PASS'; Write-Host 'C21A18_INTERNAL_ADAPTATION_FREEZE=PASS'; Write-Host 'C21A18_VISUAL_FREEZE=PASS'; Write-Host 'C21A18_LIBMPV_FREEZE=PASS'; Write-Host 'C21A18_FANOUT_AUDIT=PASS'
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
