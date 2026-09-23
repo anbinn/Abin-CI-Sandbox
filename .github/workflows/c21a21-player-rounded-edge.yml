@@ -1,0 +1,47 @@
+name: C21A21 Player Rounded Edge Boundary
+on:
+  push:
+    branches: [ main ]
+    paths: [ '.github/workflows/c21a21-player-rounded-edge.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout exact private Abin source
+        uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: 6697898547d3b90926c6a18457bbede1f74d3685
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Prove C21A21 contract
+        shell: pwsh
+        run: |
+          $source='6697898547d3b90926c6a18457bbede1f74d3685'; $baseline='09a83afeea583515aa795ddbd1db3d6aa0a59481'
+          $actual=(git rev-parse HEAD).Trim(); $parent=(git rev-parse HEAD^).Trim()
+          Write-Host "SOURCE_SHA=$actual"; Write-Host "PARENT_SHA=$parent"
+          if($actual -ne $source -or $parent -ne $baseline){throw 'C21A21_IDENTITY=FAIL'}
+          $files=@(git diff --name-only $baseline HEAD)
+          if($files.Count -ne 1 -or $files[0] -ne 'Modules/MediaDiscovery/UI/MediaPlayerViewport.cs'){throw 'C21A21_SCOPE=FAIL'}
+          $src=Get-Content 'Modules/MediaDiscovery/UI/MediaPlayerViewport.cs' -Raw
+          foreach($token in @('protected override bool UseClosedRegion=>false','UpdateRenderSurfaceRegion','_renderSurface.Region=new Region(path)','Dock=DockStyle.Fill','CornerRadius=AppTheme.CardRadius','e.Graphics.SmoothingMode=SmoothingMode.AntiAlias','e.Graphics.FillPath(brush,path)')){if(-not $src.Contains($token)){throw "C21A21_OWNER_CONTRACT=FAIL $token"}}
+          $added=(git diff --unified=0 $baseline HEAD | Select-String '^\+(?!\+\+)').Line -join "`n"
+          foreach($bad in @('SmoothingMode=','PixelOffsetMode','CornerRadius=','BackColor=','Dock=','SetBounds','Largest16By9')){if($added -match [regex]::Escape($bad)){throw "C21A21_FREEZE=FAIL $bad"}}
+          $changed=(git diff --name-only $baseline HEAD) -join "`n"
+          if($changed -match 'LibMpv|MediaFullscreenHost|V14DesignForm|Poster|LineActionButton|RoundedPanel.cs'){throw 'C21A21_FORBIDDEN_SCOPE=FAIL'}
+          Write-Host 'C21A21_ONE_COMMIT=PASS'; Write-Host 'C21A21_SCOPE=PASS'; Write-Host 'C21A21_PIXEL_OWNER=PASS'; Write-Host 'C21A21_NO_AA_STACKING=PASS'; Write-Host 'C21A21_GEOMETRY_FREEZE=PASS'; Write-Host 'C21A21_BLACK_FRAME_SEPARATION=PASS'
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Restore
+        run: dotnet restore VideoDownloader.csproj
+      - name: Release build clean
+        shell: pwsh
+        run: |
+          $output=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1
+          $output | ForEach-Object { Write-Host $_ }
+          if($LASTEXITCODE -ne 0){throw 'C21A21_BUILD=FAIL'}
+          if(($output -join "`n") -notmatch '0 Warning\(s\)' -or ($output -join "`n") -notmatch '0 Error\(s\)'){throw 'C21A21_BUILD_CLEAN=FAIL'}
+          Write-Host 'C21A21_BUILD_CLEAN=PASS'
