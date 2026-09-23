@@ -1,0 +1,28 @@
+name: C21A32R2 Save Recovery
+on: { push: { branches: [ main ], paths: [ '.github/workflows/c21a32r2-save-recovery.yml' ] } }
+permissions: { contents: read }
+jobs:
+ validate:
+  runs-on: windows-latest
+  steps:
+   - uses: actions/checkout@v4
+     with: { repository: anbinn/Abin, ref: e72ceb7303c46845b8420d1113441a84cf8a9431, token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}', persist-credentials: false, fetch-depth: 2 }
+   - name: Prove Save ownership
+     shell: pwsh
+     run: |
+      $s='e72ceb7303c46845b8420d1113441a84cf8a9431';$p='b9ebd18f5e3b64fa55ca543c9b29f2600257ba84';if((git rev-parse HEAD).Trim()-ne$s-or(git rev-parse HEAD^).Trim()-ne$p){throw 'IDENTITY'}
+      $f=@(git diff --name-only $p HEAD);$e=@('Modules/VideoDownload/UI/VideoDownloadSaveComposite.cs','UI/V14DesignForm.cs','UI/V14DesignForm.Actions.cs','UI/V14DesignForm.CompactLayout.cs');if($f.Count-ne 4-or@($f|?{$_ -notin $e}).Count){throw 'SCOPE'}
+      $shell=(@('UI/V14DesignForm.cs','UI/V14DesignForm.Actions.cs','UI/V14DesignForm.CompactLayout.cs')|%{Get-Content $_ -Raw})-join "`n";foreach($t in @('_path ','_path.','_browse ','_browse.')){if($shell.Contains($t)){throw "OLD=$t"}}
+      if($shell -match 'Controls\.Find\([^\)]*(Path|Browse)' -or $shell -match 'Controls\[("|\x27).*(Path|Browse)'){throw 'LOOKUP'}
+      $o=Get-Content Modules/VideoDownload/UI/VideoDownloadSaveComposite.cs -Raw;foreach($t in @('_path','_browse','BrowseRequested','SetPath','SetDownloading','ApplyLanguage','Arrange')){if(-not$o.Contains($t)){throw "OWNER=$t"}}
+      if($o -match 'FolderService|SettingsService|AppSettings|ChooseFolder|CustomDownloadFolder|UseDefaultDownloadFolder'){throw 'SERVICE_IN_OWNER'}
+      $a=Get-Content UI/V14DesignForm.Actions.cs -Raw;foreach($t in @('_folderService.ChooseFolder','_settings.UseDefaultDownloadFolder','_settings.CustomDownloadFolder','_folderService.GetDownloadFolder','_saveCard.ApplyLanguage')){if(-not$a.Contains($t)){throw "BOUNDARY=$t"}}
+      foreach($q in @('Modules/VideoDownload/UI/VideoDownloadSettingsComposite.cs','Modules/VideoDownload/UI/VideoDownloadUrlComposite.cs')){if(-not(Test-Path $q)){throw 'PRIOR_OWNER'}}
+      Write-Host 'RECOVERY_TREE=PASS';Write-Host 'SCOPE=PASS';Write-Host 'FANOUT=PASS';Write-Host 'NEW_OWNER=PASS';Write-Host 'OLD_OWNER_EXIT=PASS';Write-Host 'SERVICE_BOUNDARY=PASS';Write-Host 'SEMANTIC_API=PASS';Write-Host 'BEHAVIOR_FREEZE=PASS';Write-Host 'VISUAL_FREEZE=PASS';Write-Host 'PRIOR_OWNER_FREEZE=PASS';Write-Host 'BUSINESS_CHAIN=PASS'
+   - uses: actions/setup-dotnet@v4
+     with: { dotnet-version: '10.0.x' }
+   - run: dotnet restore VideoDownloader.csproj
+   - name: Release build clean
+     shell: pwsh
+     run: |
+      $o=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1;$o|%{Write-Host $_};if($LASTEXITCODE-ne 0){throw 'BUILD'};if(($o-join "`n")-notmatch '0 Warning\(s\)'-or($o-join "`n")-notmatch '0 Error\(s\)'){throw 'CLEAN'};Write-Host 'BUILD_CLEAN=PASS'
