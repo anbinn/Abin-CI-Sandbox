@@ -32,7 +32,7 @@ jobs:
           if($src.Contains('class MediaDiscoveryClosedSurface')){throw 'OLD_OWNER_EXIT=FAIL'}
           if(-not $page.Contains('MediaDiscoverySearchSurface _mediaSearchCard')){throw 'PAGE_WIRING=FAIL'}
           $shared=git diff $recovery HEAD -- 'UI/Controls/V14Surface.cs' 'UI/Controls/RoundedPanel.cs'; if($shared){throw 'SHARED_FREEZE=FAIL'}
-          $host=git diff $recovery HEAD -- 'Modules/MediaDiscovery/UI/MediaFullscreenHost.cs' 'Modules/MediaDiscovery/LibMpvPlaybackBackend.cs'; if($host){throw 'PLAYBACK_FREEZE=FAIL'}
+          $playbackDiff=git diff $recovery HEAD -- 'Modules/MediaDiscovery/UI/MediaFullscreenHost.cs' 'Modules/MediaDiscovery/LibMpvPlaybackBackend.cs'; if($playbackDiff){throw 'PLAYBACK_FREEZE=FAIL'}
           Write-Host 'ONE_DELIVERY_COMMIT=PASS'; Write-Host 'EXACT_SCOPE=PASS'; Write-Host 'OWNERSHIP=PASS'; Write-Host 'OLD_OWNER_EXIT=PASS'; Write-Host 'FREEZE=PASS'
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: '10.0.x' }
