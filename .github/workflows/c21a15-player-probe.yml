@@ -1,0 +1,50 @@
+name: C21A15 Player Probe
+on:
+  push:
+    branches: [ main ]
+    paths: [ '.github/workflows/c21a15-player-probe.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout exact private Abin source
+        uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: 5b8138693c33bffa143badee26014481d32195a8
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Prove exact SHA parent scope and probe contract
+        shell: pwsh
+        run: |
+          $expected='5b8138693c33bffa143badee26014481d32195a8'; $baseExpected='1aec2b55a1eeb6a8764943598743fc18e7c68508'
+          $actual=(git rev-parse HEAD).Trim(); $base=(git rev-parse HEAD^).Trim()
+          Write-Host "SOURCE_SHA=$actual"; Write-Host "PARENT_SHA=$base"
+          if($actual -ne $expected -or $base -ne $baseExpected){throw 'C21A15_EXACT_SOURCE=FAIL'}
+          Write-Host 'C21A15_BASELINE=PASS'
+          $files=@(git diff --name-only $base HEAD); $allowed=@('Modules/MediaDiscovery/LibMpvPlaybackBackend.cs','Modules/MediaDiscovery/UI/MediaPlayerViewport.cs','Modules/MediaDiscovery/MediaPlayerProbe.cs')
+          if($files.Count -ne 3){throw "C21A15_SCOPE=FAIL count=$($files.Count)"}; foreach($f in $files){if($f -notin $allowed){throw "C21A15_SCOPE=FAIL $f"}}
+          Write-Host 'C21A15_SCOPE=PASS'
+          $probe=Get-Content 'Modules/MediaDiscovery/MediaPlayerProbe.cs' -Raw; $backend=Get-Content 'Modules/MediaDiscovery/LibMpvPlaybackBackend.cs' -Raw; $viewport=Get-Content 'Modules/MediaDiscovery/UI/MediaPlayerViewport.cs' -Raw
+          foreach($token in @('Abin-MediaPlayer-Probe.txt','GetClientRect','GetParent','HandleCreated','HandleDestroyed','surfaceHwnd=','winformsClient=','win32Client=','viewportHwnd=')){if(-not $probe.Contains($token)){throw "C21A15_PROBE_TOKEN=FAIL $token"}}
+          foreach($token in @('WriteBackendBind','wid=','WritePlayback','time-pos','duration')){if(-not ($backend+$probe).Contains($token)){throw "C21A15_BACKEND_PROBE=FAIL $token"}}
+          if(-not $viewport.Contains('MediaPlayerProbe.Attach(this,_renderSurface)')){throw 'C21A15_LIFECYCLE_ATTACH=FAIL'}
+          $diff=git diff $base HEAD -- 'UI/V14DesignForm.MediaDiscovery.cs' 'Modules/MediaDiscovery/UI/MediaFullscreenHost.cs'; if($diff){throw 'C21A15_GEOMETRY_OWNER=FAIL'}
+          $patch=(git diff $base HEAD -- 'Modules/MediaDiscovery/UI/MediaPlayerViewport.cs') -join "`n"
+          foreach($bad in @('+','BackColor=','Dock=','SetBounds','Region=','CornerRadius=')){if($bad -ne '+' -and ($patch -match ('^\+.*'+[regex]::Escape($bad)))){throw "C21A15_VISUAL_GEOMETRY=FAIL $bad"}}
+          Write-Host 'C21A15_PROBE_DATA=PASS'; Write-Host 'C21A15_ZERO_GEOMETRY_CHANGE=PASS'; Write-Host 'C21A15_ZERO_VISUAL_CHANGE=PASS'
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Restore
+        run: dotnet restore VideoDownloader.csproj
+      - name: Release build clean
+        shell: pwsh
+        run: |
+          $output=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1
+          $output | ForEach-Object { Write-Host $_ }
+          if($LASTEXITCODE -ne 0){throw 'C21A15_BUILD=FAIL'}
+          if(($output -join "`n") -notmatch '0 Warning\(s\)' -or ($output -join "`n") -notmatch '0 Error\(s\)'){throw 'C21A15_BUILD_CLEAN=FAIL'}
+          Write-Host 'C21A15_BUILD_CLEAN=PASS'
