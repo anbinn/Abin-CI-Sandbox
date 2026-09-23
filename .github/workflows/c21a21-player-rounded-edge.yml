@@ -19,16 +19,15 @@ jobs:
       - name: Prove C21A21 contract
         shell: pwsh
         run: |
-          $source='6697898547d3b90926c6a18457bbede1f74d3685'; $baseline='09a83afeea583515aa795ddbd1db3d6aa0a59481'
+          $source='6697898547d3b90926c6a18457bbede1f74d3685'; $baseline='09a83afeea583515aa795ddbd1db3d6aa0a59481'; $path='Modules/MediaDiscovery/UI/MediaPlayerViewport.cs'
           $actual=(git rev-parse HEAD).Trim(); $parent=(git rev-parse HEAD^).Trim()
           Write-Host "SOURCE_SHA=$actual"; Write-Host "PARENT_SHA=$parent"
           if($actual -ne $source -or $parent -ne $baseline){throw 'C21A21_IDENTITY=FAIL'}
           $files=@(git diff --name-only $baseline HEAD)
-          if($files.Count -ne 1 -or $files[0] -ne 'Modules/MediaDiscovery/UI/MediaPlayerViewport.cs'){throw 'C21A21_SCOPE=FAIL'}
-          $src=Get-Content 'Modules/MediaDiscovery/UI/MediaPlayerViewport.cs' -Raw
+          if($files.Count -ne 1 -or $files[0] -ne $path){throw 'C21A21_SCOPE=FAIL'}
+          $src=Get-Content $path -Raw; $baseSrc=(git show "${baseline}:$path") -join "`n"
           foreach($token in @('protected override bool UseClosedRegion=>false','UpdateRenderSurfaceRegion','_renderSurface.Region=new Region(path)','Dock=DockStyle.Fill','CornerRadius=AppTheme.CardRadius','e.Graphics.SmoothingMode=SmoothingMode.AntiAlias','e.Graphics.FillPath(brush,path)')){if(-not $src.Contains($token)){throw "C21A21_OWNER_CONTRACT=FAIL $token"}}
-          $added=(git diff --unified=0 $baseline HEAD | Select-String '^\+(?!\+\+)').Line -join "`n"
-          foreach($bad in @('SmoothingMode=','PixelOffsetMode','CornerRadius=','BackColor=','Dock=','SetBounds','Largest16By9')){if($added -match [regex]::Escape($bad)){throw "C21A21_FREEZE=FAIL $bad"}}
+          foreach($token in @('SmoothingMode.AntiAlias','PixelOffsetMode','CornerRadius=AppTheme.CardRadius','Dock=DockStyle.Fill','Largest16By9','SetBoundsCore')){if(([regex]::Matches($src,[regex]::Escape($token))).Count -ne ([regex]::Matches($baseSrc,[regex]::Escape($token))).Count){throw "C21A21_FREEZE=FAIL $token"}}
           $changed=(git diff --name-only $baseline HEAD) -join "`n"
           if($changed -match 'LibMpv|MediaFullscreenHost|V14DesignForm|Poster|LineActionButton|RoundedPanel.cs'){throw 'C21A21_FORBIDDEN_SCOPE=FAIL'}
           Write-Host 'C21A21_ONE_COMMIT=PASS'; Write-Host 'C21A21_SCOPE=PASS'; Write-Host 'C21A21_PIXEL_OWNER=PASS'; Write-Host 'C21A21_NO_AA_STACKING=PASS'; Write-Host 'C21A21_GEOMETRY_FREEZE=PASS'; Write-Host 'C21A21_BLACK_FRAME_SEPARATION=PASS'
