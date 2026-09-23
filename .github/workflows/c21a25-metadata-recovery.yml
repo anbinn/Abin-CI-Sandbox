@@ -1,0 +1,39 @@
+name: C21A25 Metadata Namespace Recovery
+on:
+  push:
+    branches: [ main ]
+    paths: [ '.github/workflows/c21a25-metadata-recovery.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: 29be3b351e169977b43704703158ab9b4f37a2d6
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Prove exact recovery
+        shell: pwsh
+        run: |
+          $source='29be3b351e169977b43704703158ab9b4f37a2d6';$parent='7e14155b96cc15933d9fb262c4cf6bd37733a9a8'
+          if((git rev-parse HEAD).Trim() -ne $source -or (git rev-parse HEAD^).Trim() -ne $parent){throw 'IDENTITY=FAIL'}
+          $files=@(git diff --name-only $parent HEAD);$expected=@('Modules/MediaDiscovery/UI/MediaIconLibrary.cs','Modules/MediaDiscovery/UI/MediaPlayerViewport.cs','UI/V14DesignForm.MediaDiscovery.CurrentSource.cs','UI/V14DesignForm.MediaDiscovery.cs')
+          if($files.Count -ne 4 -or @($files|?{$_ -notin $expected}).Count){throw 'SCOPE=FAIL'}
+          $page=Get-Content 'UI/V14DesignForm.MediaDiscovery.cs' -Raw;$pv=Get-Content 'Modules/MediaDiscovery/UI/MediaPlayerViewport.cs' -Raw;$icons=Get-Content 'Modules/MediaDiscovery/UI/MediaIconLibrary.cs' -Raw;$current=Get-Content 'UI/V14DesignForm.MediaDiscovery.CurrentSource.cs' -Raw
+          if(-not $page.StartsWith('using System.ComponentModel;')){throw 'COMPONENTMODEL=FAIL'}
+          if(-not $page.Contains('[Browsable(false),DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)] internal bool Selected')){throw 'METADATA=FAIL'}
+          if(-not $pv.Contains('this.BindTheme(c=>c.BackColor=AppTheme.Surface)') -or -not $icons.Contains('this.BindTheme(c=>{c.BackColor=AppTheme.SecondaryButton;c.ForeColor=AppTheme.TextMuted;})')){throw 'BINDTHEME_FIX=FAIL'}
+          foreach($bad in @('ConfigureSearchBox(','ConfigureIconButton(','ApplyMediaCategoryButtonAppearance(','SetAppearance(')){if($page.Contains($bad)){throw 'OLD_OWNER_EXIT=FAIL'}}
+          if($current.Contains('selector.BindTheme(c=>c.HostSurfaceColor=AppTheme.PageBackground)')){throw 'ROUTE_OLD_OWNER=FAIL'}
+          if(git diff $parent HEAD -- 'UI/Controls/V14Surface.cs' 'UI/Controls/RoundedPanel.cs' 'Modules/MediaDiscovery/UI/MediaFullscreenHost.cs' 'Modules/MediaDiscovery/LibMpvPlaybackBackend.cs'){throw 'FREEZE=FAIL'}
+          Write-Host 'ONE_DELIVERY_COMMIT=PASS';Write-Host 'EXACT_SCOPE=PASS';Write-Host 'OWNERSHIP_PRESERVED=PASS';Write-Host 'FIX_EXACT=PASS';Write-Host 'FREEZE=PASS'
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - run: dotnet restore VideoDownloader.csproj
+      - name: Release build clean
+        shell: pwsh
+        run: |
+          $o=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1;$o|%{Write-Host $_};if($LASTEXITCODE -ne 0){throw 'BUILD=FAIL'};if(($o-join "`n") -notmatch '0 Warning\(s\)' -or ($o-join "`n") -notmatch '0 Error\(s\)'){throw 'BUILD_CLEAN=FAIL'};Write-Host 'BUILD_CLEAN=PASS'
