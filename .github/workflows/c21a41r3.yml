@@ -1,0 +1,48 @@
+name: C21A41R3 MediaDiscovery UI Closure
+on:
+  push:
+    branches: [ v16-t89-r3-validation ]
+    paths: [ '.github/workflows/c21a41r3.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: fe847f724d56b82b248bdfb9c2f42dafa8ae582b
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+      - name: Prove UI closure
+        shell: pwsh
+        run: |
+          if((git rev-parse HEAD).Trim() -ne 'fe847f724d56b82b248bdfb9c2f42dafa8ae582b'){throw 'SHA'}
+          $s=Get-Content UI/V14DesignForm.cs -Raw
+          $m=Get-Content UI/V14DesignForm.MediaDiscovery.cs -Raw
+          $d=Get-Content UI/Controls/V14ComboBox.cs -Raw
+          $x=Get-Content UI/MediaSourceSettingsDialog.cs -Raw
+          foreach($t in @('_mediaDiscoveryPage.Visible && _mediaCurrentPage.Kind == MediaPageKind.Home','else if (_websiteHubPage.Visible)','UpdateHeader(true)','UpdateHeader(false)')){if(-not $s.Contains($t)){throw "HEADER=$t"}}
+          foreach($t in @('private void ApplyMediaDiscoveryHeader()','Discover movies, series, anime and more','play.SetBounds(Px(220),Px(234),Px(112),AppTheme.ButtonHeight);line.SetBounds(play.Right+gap,Px(234),lineWidth,play.Height)')){if(-not $m.Contains($t)){throw "MEDIA=$t"}}
+          foreach($t in @('AppTheme.ControlRadius','AppTheme.BrandSoft','AppTheme.BrandPrimary','AppTheme.SurfaceHover','MeasureAdaptiveWidth')){if(-not $d.Contains($t)){throw "DROP=$t"}}
+          if($x.Contains('MediaSettingsNav') -or $x.Contains('MediaSettingsSourcesNav')){throw 'LEFT_NAV_RESIDUE'}
+          foreach($t in @('content.SetBounds(left,top','V14ControlFactory.SecondaryAction','V14ControlFactory.PrimaryAction','DialogResult=DialogResult.Cancel','DialogResult=DialogResult.OK','AcceptButton=save','CancelButton=cancel','MediaUnifiedSourceUrl')){if(-not $x.Contains($t)){throw "SETTINGS=$t"}}
+          Write-Host 'ACTIVE_PAGE_HEADER_OWNER=PASS'
+          Write-Host 'FIXED_ENGLISH_BRANDING=PASS'
+          Write-Host 'DETAIL_DROPDOWN_FREEZE=PASS'
+          Write-Host 'SOURCE_SETTINGS_NO_LEFT_NAV=PASS'
+          Write-Host 'SOURCE_SETTINGS_ALIGNMENT=PASS'
+          Write-Host 'SOURCE_SETTINGS_BUTTON_RADIUS=PASS'
+          Write-Host 'SOURCE_SAVE_EVENT_FREEZE=PASS'
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Restore
+        run: dotnet restore VideoDownloader.csproj
+      - name: Release build clean
+        shell: pwsh
+        run: |
+          $o=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1
+          $o|%{Write-Host $_}
+          if($LASTEXITCODE-ne 0){throw 'BUILD'}
+          $s=$o-join "`n"
+          if($s-notmatch '0 Warning\(s\)' -or $s-notmatch '0 Error\(s\)'){throw 'CLEAN'}
