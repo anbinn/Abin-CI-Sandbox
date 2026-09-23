@@ -18,8 +18,8 @@ jobs:
         shell: pwsh
         run: |
           if((git rev-parse HEAD).Trim() -ne '4a64e56757c615449a58aae26b61216b5c416701'){throw 'SHA'}
-          $changed=git diff --name-only 3f96837edcdf6d401efb4ff602a326995a5420cf HEAD
-          if(($changed|Measure-Object).Count-ne 1 -or $changed[0]-ne 'UI/Controls/V14ComboBox.cs'){throw "SCOPE: $changed"}
+          [string[]]$changed=@(git diff --name-only 3f96837edcdf6d401efb4ff602a326995a5420cf HEAD)
+          if($changed.Count-ne 1 -or $changed[0]-ne 'UI/Controls/V14ComboBox.cs'){throw "SCOPE: $changed"}
           $d=Get-Content UI/Controls/V14ComboBox.cs -Raw
           foreach($t in @('class PopupFlyout : Form','class SoftShadowWindow : Form','WS_EX_LAYERED','WS_EX_NOACTIVATE','UpdateLayeredWindow','for(int spread=_blur;spread>=1;spread--)','shadowOffset','DropShadowEnabled')){if(-not $d.Contains($t) -and $t-ne 'DropShadowEnabled'){throw "POPUP=$t"}}
           if($d.Contains('ToolStripDropDown') -or $d.Contains('DropShadowEnabled=true')){throw 'SYSTEM_SHADOW_HOST'}
