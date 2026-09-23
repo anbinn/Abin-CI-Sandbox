@@ -1,4 +1,4 @@
-name: C21A38 Final End-to-End Validation T85
+name: C21A38 Final End-to-End Validation T85R2
 on:
   push:
     branches: [ v16-t84-final-e2e-validation ]
