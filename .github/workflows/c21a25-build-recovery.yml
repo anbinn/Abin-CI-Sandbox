@@ -1,0 +1,52 @@
+name: C21A25 Build Recovery
+on:
+  push:
+    branches: [ main ]
+    paths: [ '.github/workflows/c21a25-build-recovery.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout exact private Abin source
+        uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: d68c4cab2e0ff81d802cdee7dec7b03fd64e58ee
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Prove recovery contract
+        shell: pwsh
+        run: |
+          $source='d68c4cab2e0ff81d802cdee7dec7b03fd64e58ee'; $parent='1afde04136b4d47920f10440a8c6fb1c8641085c'
+          $actual=(git rev-parse HEAD).Trim(); $actualParent=(git rev-parse HEAD^).Trim()
+          Write-Host "SOURCE_SHA=$actual"; Write-Host "PARENT_SHA=$actualParent"
+          if($actual -ne $source -or $actualParent -ne $parent){throw 'IDENTITY=FAIL'}
+          $files=@(git diff --name-only $parent HEAD)
+          $expected=@('Modules/MediaDiscovery/UI/MediaIconLibrary.cs','Modules/MediaDiscovery/UI/MediaPlayerViewport.cs','UI/V14DesignForm.MediaDiscovery.CurrentSource.cs','UI/V14DesignForm.MediaDiscovery.cs')
+          if($files.Count -ne 4 -or @($files|Where-Object{$_ -notin $expected}).Count -ne 0){throw 'SCOPE=FAIL'}
+          $pv=Get-Content 'Modules/MediaDiscovery/UI/MediaPlayerViewport.cs' -Raw
+          $icons=Get-Content 'Modules/MediaDiscovery/UI/MediaIconLibrary.cs' -Raw
+          $page=Get-Content 'UI/V14DesignForm.MediaDiscovery.cs' -Raw
+          $current=Get-Content 'UI/V14DesignForm.MediaDiscovery.CurrentSource.cs' -Raw
+          if(-not $pv.Contains('this.BindTheme(c=>c.BackColor=AppTheme.Surface)')){throw 'FIX_SEARCH_RECEIVER=FAIL'}
+          if(-not $icons.Contains('this.BindTheme(c=>{c.BackColor=AppTheme.SecondaryButton;c.ForeColor=AppTheme.TextMuted;})')){throw 'FIX_ICON_RECEIVER=FAIL'}
+          if(-not $page.Contains('[Browsable(false),DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)] internal bool Selected')){throw 'FIX_SERIALIZATION=FAIL'}
+          foreach($bad in @('ConfigureSearchBox(','ConfigureIconButton(','ApplyMediaCategoryButtonAppearance(','SetAppearance(')){if($page.Contains($bad)){throw "OLD_OWNER_EXIT=FAIL $bad"}}
+          if($current.Contains('selector.BindTheme(c=>c.HostSurfaceColor=AppTheme.PageBackground)')){throw 'ROUTE_OLD_OWNER=FAIL'}
+          $shared=git diff $parent HEAD -- 'UI/Controls/V14Surface.cs' 'UI/Controls/RoundedPanel.cs'; if($shared){throw 'SHARED_FREEZE=FAIL'}
+          $playback=git diff $parent HEAD -- 'Modules/MediaDiscovery/UI/MediaFullscreenHost.cs' 'Modules/MediaDiscovery/LibMpvPlaybackBackend.cs'; if($playback){throw 'PLAYBACK_FREEZE=FAIL'}
+          Write-Host 'ONE_DELIVERY_COMMIT=PASS'; Write-Host 'EXACT_SCOPE=PASS'; Write-Host 'OWNERSHIP_PRESERVED=PASS'; Write-Host 'FIX_EXACT=PASS'; Write-Host 'FREEZE=PASS'
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Restore
+        run: dotnet restore VideoDownloader.csproj
+      - name: Release build clean
+        shell: pwsh
+        run: |
+          $output=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1
+          $output | ForEach-Object { Write-Host $_ }
+          if($LASTEXITCODE -ne 0){throw 'BUILD=FAIL'}
+          if(($output -join "`n") -notmatch '0 Warning\(s\)' -or ($output -join "`n") -notmatch '0 Error\(s\)'){throw 'BUILD_CLEAN=FAIL'}
+          Write-Host 'BUILD_CLEAN=PASS'
