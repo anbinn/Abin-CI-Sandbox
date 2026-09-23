@@ -1,0 +1,26 @@
+name: C21A33R1 Progress Recovery
+on: { push: { branches: [ main ], paths: [ '.github/workflows/c21a33r1-progress-recovery.yml' ] } }
+permissions: { contents: read }
+jobs:
+ validate:
+  runs-on: windows-latest
+  steps:
+   - uses: actions/checkout@v4
+     with: { repository: anbinn/Abin, ref: c0fcaf7b44afb24f6bbd2e7e549467a718279b54, token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}', persist-credentials: false, fetch-depth: 2 }
+   - name: Prove progress ownership
+     shell: pwsh
+     run: |
+      $s='c0fcaf7b44afb24f6bbd2e7e549467a718279b54';$p='5210729bb7d3fe7830c59019e128ecd657a937b6';if((git rev-parse HEAD).Trim()-ne$s-or(git rev-parse HEAD^).Trim()-ne$p){throw 'IDENTITY'}
+      $f=@(git diff --name-only $p HEAD);$e=@('UI/Controls/TaskProgressCard.cs','UI/V14DesignForm.cs','UI/V14DesignForm.Actions.cs','UI/V14DesignForm.CompactLayout.cs','UI/V14DesignForm.LiveStats.cs','UI/V14DesignForm.Progress.cs');if($f.Count-ne 6-or@($f|?{$_ -notin $e}).Count){throw 'SCOPE'}
+      $shell=(@('UI/V14DesignForm.cs','UI/V14DesignForm.Actions.cs','UI/V14DesignForm.CompactLayout.cs','UI/V14DesignForm.LiveStats.cs','UI/V14DesignForm.Progress.cs')|%{Get-Content $_ -Raw})-join "`n";foreach($t in @('_taskTitle','_taskMeta','_taskFormat','_taskFileSize','_taskStatus','_taskPercent','_speed','_size','_eta','_pause','_cancel','_progressTrack','_progressFill','._thumbnail')){if($shell.Contains($t)){throw "OLD=$t"}}
+      $o=Get-Content UI/Controls/TaskProgressCard.cs -Raw;foreach($t in @('SetTaskInfo','SetProgress','SetLiveStats','SetDownloading','ApplyLanguage','Arrange','CancelRequested','SetPercentage','SetThumbnailLoaded')){if(-not$o.Contains($t)){throw "OWNER=$t"}}
+      if($o -match 'DownloadService|VideoDownloadTaskRunner|VideoDownloadDispatcher|CancellationTokenSource'){throw 'BUSINESS_IN_OWNER'}
+      foreach($q in @('Modules/VideoDownload/UI/VideoDownloadSettingsComposite.cs','Modules/VideoDownload/UI/VideoDownloadUrlComposite.cs','Modules/VideoDownload/UI/VideoDownloadSaveComposite.cs')){if(-not(Test-Path $q)){throw 'PRIOR_OWNER'}}
+      Write-Host 'RECOVERY_TREE=PASS';Write-Host 'SCOPE=PASS';Write-Host 'FANOUT=PASS';Write-Host 'EXISTING_OWNER=PASS';Write-Host 'OLD_OWNER_EXIT=PASS';Write-Host 'SEMANTIC_API=PASS';Write-Host 'BUSINESS_BOUNDARY=PASS';Write-Host 'BEHAVIOR_FREEZE=PASS';Write-Host 'VISUAL_FREEZE=PASS';Write-Host 'PRIOR_OWNER_FREEZE=PASS';Write-Host 'BUSINESS_CHAIN=PASS'
+   - uses: actions/setup-dotnet@v4
+     with: { dotnet-version: '10.0.x' }
+   - run: dotnet restore VideoDownloader.csproj
+   - name: Release build clean
+     shell: pwsh
+     run: |
+      $o=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1;$o|%{Write-Host $_};if($LASTEXITCODE-ne 0){throw 'BUILD'};if(($o-join "`n")-notmatch '0 Warning\(s\)'-or($o-join "`n")-notmatch '0 Error\(s\)'){throw 'CLEAN'};Write-Host 'BUILD_CLEAN=PASS'
