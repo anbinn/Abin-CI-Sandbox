@@ -1,0 +1,60 @@
+name: C21A38 Final End-to-End Validation
+on:
+  push:
+    branches: [ v16-t84-final-e2e-validation ]
+    paths: [ '.github/workflows/c21a38-final-e2e-validation.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: 88c2d96d32b9646863fdaf86c54050b7129579f3
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Prove final ownership and routing
+        shell: pwsh
+        run: |
+          $expected='88c2d96d32b9646863fdaf86c54050b7129579f3'
+          if((git rev-parse HEAD).Trim() -ne $expected){throw 'EXACT_SHA'}
+          $shell=Get-Content UI/V14DesignForm.cs -Raw
+          $actions=Get-Content UI/V14DesignForm.Actions.cs -Raw
+          $media=Get-Content UI/V14DesignForm.MediaDiscovery.cs -Raw
+          $web=Get-Content Modules/WebsiteHub/WebsiteHubPage.cs -Raw
+          $save=Get-Content Modules/VideoDownload/UI/VideoDownloadSaveComposite.cs -Raw
+          $settings=Get-Content Modules/VideoDownload/UI/VideoDownloadSettingsComposite.cs -Raw
+          $progress=Get-Content UI/Controls/TaskProgressCard.cs -Raw
+          $theme=Get-Content UI/ThemeManager.cs -Raw
+          foreach($t in @('RunRealMediaSearchAsync','PushMediaPage','BackMediaPage','BuildPlayerPage','SetMediaPlayerFullscreen')){if(-not $media.Contains($t)){throw "MEDIA=$t"}}
+          foreach($t in @('_settingsCard.StartRequested += Start_Click','_saveCard.BrowseRequested += Browse_Click','_progressCard.CancelRequested += Cancel_Click','_videoDownloadTaskRunner.RunAsync','_progressCard.SetLiveStats')){if(-not ($shell+$actions+(Get-Content UI/V14DesignForm.LiveStats.cs -Raw)).Contains($t)){throw "DOWNLOAD=$t"}}
+          foreach($t in @('card.Click+=(_,_)=>OpenWebsite(website)','logo.Click+=(_,_)=>OpenWebsite(website)','name.Click+=(_,_)=>OpenWebsite(website)','description.Click+=(_,_)=>OpenWebsite(website)','Process.Start','website.OfficialUrl')){if(-not $web.Contains($t)){throw "WEB=$t"}}
+          foreach($bad in @('_websiteHubPage.Controls[','_websiteHubPage.Controls.','_saveCard.Controls[','_settingsCard.Controls[','_urlCard.Controls[','_progressCard.Controls[')){if(($shell+$actions).Contains($bad)){throw "OLD_OWNER=$bad"}}
+          if(($shell -split "\n" | Where-Object { $_ -match '_websiteHubPage\.BindTheme' }).Count -gt 0){throw 'WEB_STYLE_STACK'}
+          foreach($t in @('internal static class ThemeManager','internal static class ThemeBindings','internal sealed class ThemeScope','ThemeManager.Changed += Refresh')){if(-not $theme.Contains($t)){throw "THEME=$t"}}
+          foreach($t in @('_saveCard.ApplyLanguage(IsEnglish)','_settingsCard.ApplyLanguage(IsEnglish','_progressCard.ApplyLanguage(IsEnglish)','_websiteHubPage.ApplyLanguage(IsEnglish)')){if(-not ($shell+$actions).Contains($t)){throw "LANG=$t"}}
+          if(-not $save.Contains('BrowseRequested') -or -not $settings.Contains('StartRequested') -or -not $progress.Contains('CancelRequested')){throw 'SEMANTIC_EVENTS'}
+          $moduleFiles=Get-ChildItem Modules -Recurse -Filter *.cs
+          foreach($f in $moduleFiles){$rel=$f.FullName.Substring((Resolve-Path .).Path.Length+1).Replace('\','/');$own=($rel -split '/')[1];$c=Get-Content $f.FullName -Raw;foreach($other in @('MediaDiscovery','VideoDownload','WebsiteHub')){if($other-ne$own -and $c.Contains("VideoDownloader.Modules.$other")){throw "MODULE_ISOLATION=$rel->$other"}}}
+          Write-Host 'EXACT_SHA=PASS'
+          Write-Host 'MEDIA_DISCOVERY=PASS'
+          Write-Host 'VIDEO_DOWNLOAD=PASS'
+          Write-Host 'WEBSITEHUB=PASS'
+          Write-Host 'SHARED_GLOBAL=PASS'
+          Write-Host 'MODULE_ISOLATION=PASS'
+          Write-Host 'OLD_OWNER_NO_STYLE_STACKING=PASS'
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Restore
+        run: dotnet restore VideoDownloader.csproj
+      - name: Release build clean
+        shell: pwsh
+        run: |
+          $o=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1
+          $o|%{Write-Host $_}
+          if($LASTEXITCODE-ne 0){throw 'BUILD'}
+          $s=$o-join "`n"
+          if($s-notmatch '0 Warning\(s\)' -or $s-notmatch '0 Error\(s\)'){throw 'CLEAN'}
+          Write-Host 'RELEASE_BUILD_0_WARNINGS_0_ERRORS=PASS'
