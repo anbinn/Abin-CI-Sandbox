@@ -1,0 +1,48 @@
+name: C21A24R2 Commit Shape Recovery
+on:
+  push:
+    branches: [ main ]
+    paths: [ '.github/workflows/c21a24r2-recovery.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout exact private Abin source
+        uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: 99448896b22e9aaa0587c489db1ea75bb36fe982
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Prove recovery delivery contract
+        shell: pwsh
+        run: |
+          $source='99448896b22e9aaa0587c489db1ea75bb36fe982'; $recovery='64da431297c05826865cb981858382db8986ba85'
+          $actual=(git rev-parse HEAD).Trim(); $parent=(git rev-parse HEAD^).Trim()
+          Write-Host "SOURCE_SHA=$actual"; Write-Host "PARENT_SHA=$parent"
+          if($actual -ne $source -or $parent -ne $recovery){throw 'IDENTITY=FAIL'}
+          $files=@(git diff --name-only $recovery HEAD)
+          $expected=@('Modules/MediaDiscovery/UI/MediaPlayerViewport.cs','UI/V14DesignForm.MediaDiscovery.cs')
+          if($files.Count -ne 2 -or @($files|Where-Object{$_ -notin $expected}).Count -ne 0){throw 'SCOPE=FAIL'}
+          $src=Get-Content 'Modules/MediaDiscovery/UI/MediaPlayerViewport.cs' -Raw
+          $page=Get-Content 'UI/V14DesignForm.MediaDiscovery.cs' -Raw
+          foreach($token in @('class MediaDiscoverySearchSurface:V14Surface','class MediaPlayerViewport:V14Surface','BorderThickness=0','ShadowSize=0','ClipContentToRoundedSurface=true','SmoothingMode=SmoothingMode.AntiAlias','Region=new Region(path)','Parent is MediaFullscreenHost host?host.BackColor:AppTheme.PageBackground')){if(-not $src.Contains($token)){throw "OWNERSHIP=FAIL $token"}}
+          if($src.Contains('class MediaDiscoveryClosedSurface')){throw 'OLD_OWNER_EXIT=FAIL'}
+          if(-not $page.Contains('MediaDiscoverySearchSurface _mediaSearchCard')){throw 'PAGE_WIRING=FAIL'}
+          $shared=git diff $recovery HEAD -- 'UI/Controls/V14Surface.cs' 'UI/Controls/RoundedPanel.cs'; if($shared){throw 'SHARED_FREEZE=FAIL'}
+          $host=git diff $recovery HEAD -- 'Modules/MediaDiscovery/UI/MediaFullscreenHost.cs' 'Modules/MediaDiscovery/LibMpvPlaybackBackend.cs'; if($host){throw 'PLAYBACK_FREEZE=FAIL'}
+          Write-Host 'ONE_DELIVERY_COMMIT=PASS'; Write-Host 'EXACT_SCOPE=PASS'; Write-Host 'OWNERSHIP=PASS'; Write-Host 'OLD_OWNER_EXIT=PASS'; Write-Host 'FREEZE=PASS'
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Restore
+        run: dotnet restore VideoDownloader.csproj
+      - name: Release build clean
+        shell: pwsh
+        run: |
+          $output=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1
+          $output | ForEach-Object { Write-Host $_ }
+          if($LASTEXITCODE -ne 0){throw 'BUILD=FAIL'}
+          if(($output -join "`n") -notmatch '0 Warning\(s\)' -or ($output -join "`n") -notmatch '0 Error\(s\)'){throw 'BUILD_CLEAN=FAIL'}
+          Write-Host 'BUILD_CLEAN=PASS'
