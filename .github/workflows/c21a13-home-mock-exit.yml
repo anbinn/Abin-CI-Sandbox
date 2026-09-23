@@ -1,0 +1,49 @@
+name: C21A13 Home Mock Exit
+on:
+  push:
+    branches: [ main ]
+    paths: [ '.github/workflows/c21a13-home-mock-exit.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout exact private Abin source
+        uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: 1aec2b55a1eeb6a8764943598743fc18e7c68508
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Prove exact SHA parent scope and mock owner exit
+        shell: pwsh
+        run: |
+          $expected='1aec2b55a1eeb6a8764943598743fc18e7c68508'; $baseExpected='fea2d4d72f21e1494836c9feec2f6ac7246b89ef'
+          $actual=(git rev-parse HEAD).Trim(); $base=(git rev-parse HEAD^).Trim()
+          Write-Host "SOURCE_SHA=$actual"; Write-Host "PARENT_SHA=$base"
+          if($actual -ne $expected -or $base -ne $baseExpected){throw 'C21A13_EXACT_SOURCE=FAIL'}
+          Write-Host 'C21A13_BASELINE=PASS'
+          $files=@(git diff --name-only $base HEAD); $allowed=@('UI/V14DesignForm.MediaDiscovery.cs','UI/V14DesignForm.MediaDiscovery.CurrentSource.cs')
+          if($files.Count -lt 1 -or $files.Count -gt 2){throw "C21A13_SCOPE=FAIL count=$($files.Count)"}; foreach($f in $files){if($f -notin $allowed){throw "C21A13_SCOPE=FAIL $f"}}
+          Write-Host 'C21A13_SCOPE=PASS'
+          $page=Get-Content 'UI/V14DesignForm.MediaDiscovery.cs' -Raw
+          if($page.Contains('MediaHotMock')){throw 'C21A13_MOCK_OWNER_EXIT=FAIL MediaHotMock remains'}
+          if($page.Contains('RenderMediaCards(MediaHotMock)')){throw 'C21A13_MOCK_RUNTIME_PATH=FAIL'}
+          if(-not $page.Contains('RenderMediaCards(Array.Empty<MediaItem>())')){throw 'C21A13_INITIAL_STATE=FAIL'}
+          $current=Get-Content 'UI/V14DesignForm.MediaDiscovery.CurrentSource.cs' -Raw
+          foreach($token in @('private async Task LoadCurrentSourceHomeAsync','MapCategoryItems(state.Items)','RenderMediaCards(_mediaHomeItems)')){if(-not $current.Contains($token)){throw "C21A13_REAL_OWNER=FAIL $token"}}
+          Write-Host 'C21A13_MOCK_OWNER_EXIT=PASS'; Write-Host 'C21A13_REAL_DATA_SINGLE_OWNER=PASS'; Write-Host 'C21A13_STATE_SEMANTICS=PASS'
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Restore
+        run: dotnet restore VideoDownloader.csproj
+      - name: Release build clean
+        shell: pwsh
+        run: |
+          $output=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1
+          $output | ForEach-Object { Write-Host $_ }
+          if($LASTEXITCODE -ne 0){throw 'C21A13_BUILD=FAIL'}
+          if(($output -join "`n") -notmatch '0 Warning\(s\)' -or ($output -join "`n") -notmatch '0 Error\(s\)'){throw 'C21A13_BUILD_CLEAN=FAIL'}
+          Write-Host 'C21A13_BUILD_CLEAN=PASS'
