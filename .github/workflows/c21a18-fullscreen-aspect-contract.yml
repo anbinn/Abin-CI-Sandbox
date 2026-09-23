@@ -1,0 +1,46 @@
+name: C21A18 Fullscreen Aspect Contract
+on:
+  push:
+    branches: [ main ]
+    paths: [ '.github/workflows/c21a18-fullscreen-aspect-contract.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout exact private Abin source
+        uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: 1ce81625ffacdf1704a95ebf897602b0224ca7ff
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Prove exact SHA parent scope and fullscreen contract
+        shell: pwsh
+        run: |
+          $expected='1ce81625ffacdf1704a95ebf897602b0224ca7ff'; $baseExpected='e779505ed0f9b8a774db7719a3be61c53617aa03'
+          $actual=(git rev-parse HEAD).Trim(); $base=(git rev-parse HEAD^).Trim()
+          Write-Host "SOURCE_SHA=$actual"; Write-Host "PARENT_SHA=$base"
+          if($actual -ne $expected -or $base -ne $baseExpected){throw 'C21A18_EXACT_SOURCE=FAIL'}
+          $files=@(git diff --name-only $base HEAD)
+          if($files.Count -ne 1 -or $files[0] -ne 'Modules/MediaDiscovery/UI/MediaFullscreenHost.cs'){throw "C21A18_SCOPE=FAIL $($files -join ',')"}
+          $host=Get-Content 'Modules/MediaDiscovery/UI/MediaFullscreenHost.cs' -Raw
+          foreach($token in @('LayoutViewport()','Largest16By9(ClientRectangle)','Viewport.Bounds = bounds','bounds.Left + (bounds.Width - width) / 2','bounds.Top + (bounds.Height - height) / 2')){if(-not $host.Contains($token)){throw "C21A18_ASPECT_FIT=FAIL $token"}}
+          $patch=(git diff $base HEAD) -join "`n"
+          foreach($bad in @('BackColor =','Region =','CornerRadius','mpv_set_option_string','keepaspect','video-unscaled','panscan','video-aspect-override','RenderSurface.Dock','LayoutInternalPage')){if($patch -match ('^\+.*'+[regex]::Escape($bad))){throw "C21A18_FREEZE=FAIL $bad"}}
+          if((Select-String -InputObject $host -Pattern 'Viewport\.Bounds\s*=' -AllMatches).Matches.Count -ne 1){throw 'C21A18_GEOMETRY_OWNER=FAIL'}
+          Write-Host 'C21A18_ONE_COMMIT=PASS'; Write-Host 'C21A18_FULLSCREEN_OWNER_ONLY=PASS'; Write-Host 'C21A18_ASPECT_FIT_CONTRACT=PASS'; Write-Host 'C21A18_NORMAL_FREEZE=PASS'; Write-Host 'C21A18_INTERNAL_ADAPTATION_FREEZE=PASS'; Write-Host 'C21A18_VISUAL_FREEZE=PASS'; Write-Host 'C21A18_LIBMPV_FREEZE=PASS'; Write-Host 'C21A18_FANOUT_AUDIT=PASS'
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Restore
+        run: dotnet restore VideoDownloader.csproj
+      - name: Release build clean
+        shell: pwsh
+        run: |
+          $output=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1
+          $output | ForEach-Object { Write-Host $_ }
+          if($LASTEXITCODE -ne 0){throw 'C21A18_BUILD=FAIL'}
+          if(($output -join "`n") -notmatch '0 Warning\(s\)' -or ($output -join "`n") -notmatch '0 Error\(s\)'){throw 'C21A18_BUILD_CLEAN=FAIL'}
+          Write-Host 'C21A18_BUILD_CLEAN=PASS'
