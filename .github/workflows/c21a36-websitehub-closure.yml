@@ -6,11 +6,11 @@ jobs:
   runs-on: windows-latest
   steps:
    - uses: actions/checkout@v4
-     with: { repository: anbinn/Abin, ref: 4a74190b9e9caa7d843d58c47ba8b9cf7870ab99, token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}', persist-credentials: false, fetch-depth: 2 }
+     with: { repository: anbinn/Abin, ref: 88c2d96d32b9646863fdaf86c54050b7129579f3, token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}', persist-credentials: false, fetch-depth: 2 }
    - name: Prove WebsiteHub ownership and routing
      shell: pwsh
      run: |
-      $s='4a74190b9e9caa7d843d58c47ba8b9cf7870ab99';if((git rev-parse HEAD).Trim()-ne$s){throw 'IDENTITY'}
+      $s='88c2d96d32b9646863fdaf86c54050b7129579f3';if((git rev-parse HEAD).Trim()-ne$s){throw 'IDENTITY'}
       $p=Get-Content Modules/WebsiteHub/WebsiteHubPage.cs -Raw
       $sh=Get-Content UI/V14DesignForm.cs -Raw
       foreach($t in @('BuildCategoryBar()','BuildWebsiteGrid()','CreateWebsiteCard(website)','LayoutWebsiteGrid()','ApplyLanguage(bool isEnglish)','CategoryButton_Click','button.Click+=CategoryButton_Click','card.Click+=(_,_)=>OpenWebsite(website)','logo.Click+=(_,_)=>OpenWebsite(website)','name.Click+=(_,_)=>OpenWebsite(website)','description.Click+=(_,_)=>OpenWebsite(website)','Process.Start','website.OfficialUrl')){if(-not$p.Contains($t)){throw "PAGE_GATE=$t"}}
