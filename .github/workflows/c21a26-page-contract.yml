@@ -1,0 +1,37 @@
+name: C21A26 Module Page Contract
+on:
+  push:
+    branches: [ main ]
+    paths: [ '.github/workflows/c21a26-page-contract.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: 82b5e32c1133a4a99505509477d2616c556abaa5
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Prove page-contract extraction
+        shell: pwsh
+        run: |
+          $source='82b5e32c1133a4a99505509477d2616c556abaa5';$parent='29be3b351e169977b43704703158ab9b4f37a2d6'
+          if((git rev-parse HEAD).Trim() -ne $source -or (git rev-parse HEAD^).Trim() -ne $parent){throw 'IDENTITY=FAIL'}
+          $files=@(git diff --name-only $parent HEAD);$expected=@('Modules/MediaDiscovery/UI/MediaDiscoveryPageNavigation.cs','UI/V14DesignForm.MediaDiscovery.cs')
+          if($files.Count -ne 2 -or @($files|?{$_ -notin $expected}).Count){throw 'SCOPE=FAIL'}
+          $page=Get-Content 'UI/V14DesignForm.MediaDiscovery.cs' -Raw;$owner=Get-Content 'Modules/MediaDiscovery/UI/MediaDiscoveryPageNavigation.cs' -Raw
+          if($page.Contains('Stack<MediaPageState> _mediaNavigationStack')){throw 'OLD_OWNER_EXIT=FAIL'}
+          foreach($t in @('MediaDiscoveryPageNavigation<MediaPageState>','_mediaPageNavigation.Push(previous)','_mediaPageNavigation.TryPop(out var previous)')){if(-not $page.Contains($t)){throw "PAGE_WIRING=FAIL $t"}}
+          foreach($t in @('Stack<TState> _backStack','TState Current','void Push','bool TryPop')){if(-not $owner.Contains($t)){throw "NEW_OWNER=FAIL $t"}}
+          $forbidden=git diff $parent HEAD -- 'Modules/MediaDiscovery/UI/MediaPlayerViewport.cs' 'Modules/MediaDiscovery/UI/MediaIconLibrary.cs' 'Modules/MediaDiscovery/UI/MediaDetailRouteSelector.cs' 'Modules/MediaDiscovery/UI/MediaInternalNavigationRow.cs' 'Modules/MediaDiscovery/UI/MediaFullscreenHost.cs' 'Modules/MediaDiscovery/LibMpvPlaybackBackend.cs' 'UI/Controls/V14Surface.cs' 'UI/Controls/RoundedPanel.cs';if($forbidden){throw 'FREEZE=FAIL'}
+          Write-Host 'PAGE_CONTRACT_MAP=PASS';Write-Host 'FIRST_EXTRACTION=PASS';Write-Host 'NEW_OWNER_IN=PASS';Write-Host 'OLD_OWNER_EXIT=PASS';Write-Host 'NO_BIG_BANG=PASS';Write-Host 'SHELL_COMPONENT_FREEZE=PASS';Write-Host 'ONE_PRODUCT_COMMIT=PASS'
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - run: dotnet restore VideoDownloader.csproj
+      - name: Release build clean
+        shell: pwsh
+        run: |
+          $o=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1;$o|%{Write-Host $_};if($LASTEXITCODE -ne 0){throw 'BUILD=FAIL'};if(($o-join "`n") -notmatch '0 Warning\(s\)' -or ($o-join "`n") -notmatch '0 Error\(s\)'){throw 'BUILD_CLEAN=FAIL'};Write-Host 'BUILD_CLEAN=PASS'
