@@ -1,0 +1,47 @@
+name: C21A19 Fullscreen Contract Recovery
+on:
+  push:
+    branches: [ main ]
+    paths: [ '.github/workflows/c21a19-fullscreen-contract-recovery.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout exact private Abin source
+        uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: 09a83afeea583515aa795ddbd1db3d6aa0a59481
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Prove exact recovery
+        shell: pwsh
+        run: |
+          $source='09a83afeea583515aa795ddbd1db3d6aa0a59481'; $failed='1ce81625ffacdf1704a95ebf897602b0224ca7ff'; $baseline='e779505ed0f9b8a774db7719a3be61c53617aa03'
+          $actual=(git rev-parse HEAD).Trim(); $parent=(git rev-parse HEAD^).Trim(); $tree=(git rev-parse HEAD^{tree}).Trim(); $baseTree=(git rev-parse "$baseline^{tree}").Trim()
+          Write-Host "SOURCE_SHA=$actual"; Write-Host "PARENT_SHA=$parent"; Write-Host "TREE_SHA=$tree"; Write-Host "BASELINE_TREE_SHA=$baseTree"
+          if($actual -ne $source -or $parent -ne $failed){throw 'C21A19_IDENTITY=FAIL'}
+          if($tree -ne $baseTree){throw 'C21A19_TREE_RECOVERY=FAIL'}
+          $revertFiles=@(git diff --name-only $failed HEAD)
+          if($revertFiles.Count -ne 1 -or $revertFiles[0] -ne 'Modules/MediaDiscovery/UI/MediaFullscreenHost.cs'){throw 'C21A19_SCOPE=FAIL'}
+          $netFiles=@(git diff --name-only $baseline HEAD)
+          if($netFiles.Count -ne 0){throw 'C21A19_BASELINE_IDENTITY=FAIL'}
+          $host=Get-Content 'Modules/MediaDiscovery/UI/MediaFullscreenHost.cs' -Raw
+          foreach($token in @('Viewport.Bounds = ClientRectangle','OnResize','OnDpiChanged','LayoutPlayerControls')){if(-not $host.Contains($token)){throw "C21A19_OUTER_CONTRACT=FAIL $token"}}
+          foreach($bad in @('Largest16By9','LayoutViewport')){if($host.Contains($bad)){throw "C21A19_FAILED_CONTRACT_REMAINS=FAIL $bad"}}
+          Write-Host 'C21A19_EXACT_RECOVERY=PASS'; Write-Host 'C21A19_SCOPE=PASS'; Write-Host 'C21A19_BASELINE_TREE_IDENTITY=PASS'; Write-Host 'C21A19_FULLSCREEN_OUTER_CONTRACT=PASS'; Write-Host 'C21A19_NO_BLACKFRAME_GUESS=PASS'
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Restore
+        run: dotnet restore VideoDownloader.csproj
+      - name: Release build clean
+        shell: pwsh
+        run: |
+          $output=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1
+          $output | ForEach-Object { Write-Host $_ }
+          if($LASTEXITCODE -ne 0){throw 'C21A19_BUILD=FAIL'}
+          if(($output -join "`n") -notmatch '0 Warning\(s\)' -or ($output -join "`n") -notmatch '0 Error\(s\)'){throw 'C21A19_BUILD_CLEAN=FAIL'}
+          Write-Host 'C21A19_BUILD_CLEAN=PASS'
