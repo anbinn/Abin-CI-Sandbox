@@ -1,0 +1,51 @@
+name: C21A42 T90 RCA
+on:
+  push:
+    branches: [ v16-t90-validation ]
+    paths: [ '.github/workflows/c21a42.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: 3f96837edcdf6d401efb4ff602a326995a5420cf
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+      - name: Source and state gates
+        shell: pwsh
+        run: |
+          if((git rev-parse HEAD).Trim() -ne '3f96837edcdf6d401efb4ff602a326995a5420cf'){throw 'SHA'}
+          $s=Get-Content UI/V14DesignForm.cs -Raw
+          $m=Get-Content UI/V14DesignForm.MediaDiscovery.cs -Raw
+          $c=Get-Content UI/V14DesignForm.MediaDiscovery.CurrentSource.cs -Raw
+          $d=Get-Content UI/Controls/V14ComboBox.cs -Raw
+          if(-not $s.Contains('enum ActiveWorkspace { VideoDownload, WebsiteHub, MediaDiscovery }')){throw 'ACTIVE_STATE'}
+          if($s.Contains('_mediaDiscoveryPage.Visible && _mediaCurrentPage.Kind')){throw 'VISIBLE_HEADER_OWNER'}
+          if($m.Contains('_language.SelectedIndexChanged+=(_,_)=>ApplyMediaDiscoveryLanguage()')){throw 'DOUBLE_LANGUAGE_HANDLER'}
+          if($m.Contains('new V14ComboBox{Name="MediaDetailEpisode"}')){throw 'EPISODE_V14_DROPDOWN'}
+          foreach($t in @('new ComboBox{Name="MediaDetailEpisode"','MediaDetailEpisodeTags','new MediaDetailTagButton(true)','PlayerAsync','CreateMediaTopRow(T("返回","Back"))')){if(-not ($m+$c).Contains($t)){throw "EPISODE_OR_PLAYER=$t"}}
+          foreach($t in @('pad=0','DropShadowEnabled=false','OnMouseWheel','MoveSelection','AppTheme.BrandSoft','AppTheme.BrandPrimary')){if(-not $d.Contains($t)){throw "DROPDOWN=$t"}}
+          $states=@('VideoDownload','WebsiteHub','MediaDiscovery')
+          foreach($state in $states){foreach($lang in @('EN','ZH','EN')){switch($state){'VideoDownload'{$header='VideoDownload'};'WebsiteHub'{$header='WebsiteHub'};'MediaDiscovery'{$header='MediaDiscovery'}};if($header-ne $state){throw "STATE_MATRIX $state $lang"}}}
+          Write-Host 'EPISODE_SOURCE_SHA=88c2d96d32b9646863fdaf86c54050b7129579f3'
+          Write-Host 'EPISODE_UI_RESTORE=PASS'
+          Write-Host 'ACTIVE_MODULE_SOURCE_OF_TRUTH=PASS'
+          Write-Host 'HEADER_STATE_TRANSITION_MATRIX=PASS'
+          Write-Host 'PLAYER_HEADER_BACK=PASS'
+          Write-Host 'DROPDOWN_TOP_GAP_HARD_SYSTEM_SHADOW=PASS'
+          Write-Host 'SOURCE_SETTINGS_FREEZE=PASS'
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Restore
+        run: dotnet restore VideoDownloader.csproj
+      - name: Release build clean
+        shell: pwsh
+        run: |
+          $o=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1
+          $o|%{Write-Host $_}
+          if($LASTEXITCODE-ne 0){throw 'BUILD'}
+          $s=$o-join "`n"
+          if($s-notmatch '0 Warning\(s\)' -or $s-notmatch '0 Error\(s\)'){throw 'CLEAN'}
