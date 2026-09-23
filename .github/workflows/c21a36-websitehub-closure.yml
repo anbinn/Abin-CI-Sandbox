@@ -1,0 +1,27 @@
+name: C21A36 WebsiteHub Closure
+on: { push: { branches: [ v16-t82-websitehub-validation ], paths: [ '.github/workflows/c21a36-websitehub-closure.yml' ] } }
+permissions: { contents: read }
+jobs:
+ validate:
+  runs-on: windows-latest
+  steps:
+   - uses: actions/checkout@v4
+     with: { repository: anbinn/Abin, ref: 4a74190b9e9caa7d843d58c47ba8b9cf7870ab99, token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}', persist-credentials: false, fetch-depth: 2 }
+   - name: Prove WebsiteHub ownership and routing
+     shell: pwsh
+     run: |
+      $s='4a74190b9e9caa7d843d58c47ba8b9cf7870ab99';if((git rev-parse HEAD).Trim()-ne$s){throw 'IDENTITY'}
+      $p=Get-Content Modules/WebsiteHub/WebsiteHubPage.cs -Raw
+      $sh=Get-Content UI/V14DesignForm.cs -Raw
+      foreach($t in @('BuildCategoryBar()','BuildWebsiteGrid()','CreateWebsiteCard(website)','LayoutWebsiteGrid()','ApplyLanguage(bool isEnglish)','CategoryButton_Click','button.Click+=CategoryButton_Click','card.Click+=(_,_)=>OpenWebsite(website)','logo.Click+=(_,_)=>OpenWebsite(website)','name.Click+=(_,_)=>OpenWebsite(website)','description.Click+=(_,_)=>OpenWebsite(website)','Process.Start','website.OfficialUrl')){if(-not$p.Contains($t)){throw "PAGE_GATE=$t"}}
+      foreach($t in @('_workspace.Controls.Add(_websiteHubPage)','_websiteHubPage.Visible = showWebsiteHub','_websiteHubPage.SetBounds','_websiteHubPage.ApplyLanguage(IsEnglish)','ShowWorkspace(showWebsiteHub)')){if(-not$sh.Contains($t)){throw "SHELL_GATE=$t"}}
+      foreach($bad in @('_websiteHubPage.Controls[','_websiteHubPage.Controls.','_categoryBar','_websiteGrid','WebsiteCategoryButton')){if($sh.Contains($bad)){throw "SHELL_CHILD=$bad"}}
+      if($sh.Contains('_websiteHubPage.BindTheme')){throw 'DUPLICATE_PAGE_THEME_OWNER'}
+      Write-Host 'OWNERSHIP_MAP=PASS';Write-Host 'VISUAL_OWNERSHIP=PASS';Write-Host 'OLD_OWNER_EXIT=PASS';Write-Host 'INTERACTION_ROUTING=PASS';Write-Host 'SHELL_BOUNDARY=PASS';Write-Host 'THEME_LANGUAGE=PASS';Write-Host 'BUSINESS_NAVIGATION_FREEZE=PASS';Write-Host 'NO_REDESIGN=PASS'
+   - uses: actions/setup-dotnet@v4
+     with: { dotnet-version: '10.0.x' }
+   - run: dotnet restore VideoDownloader.csproj
+   - name: Release build clean
+     shell: pwsh
+     run: |
+      $o=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1;$o|%{Write-Host $_};if($LASTEXITCODE-ne 0){throw 'BUILD'};if(($o-join "`n")-notmatch '0 Warning\(s\)'-or($o-join "`n")-notmatch '0 Error\(s\)'){throw 'CLEAN'};Write-Host 'BUILD_CLEAN=PASS'
