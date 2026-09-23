@@ -1,0 +1,25 @@
+name: C21A31 URL Composite
+on: { push: { branches: [ main ], paths: [ '.github/workflows/c21a31-url-composite.yml' ] } }
+permissions: { contents: read }
+jobs:
+ validate:
+  runs-on: windows-latest
+  steps:
+   - uses: actions/checkout@v4
+     with: { repository: anbinn/Abin, ref: eb41ad0081779c6deb57f3b2a336460dc9e9e802, token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}', persist-credentials: false, fetch-depth: 2 }
+   - name: Prove URL ownership
+     shell: pwsh
+     run: |
+      $s='eb41ad0081779c6deb57f3b2a336460dc9e9e802';$p='21e29d9f46329c9964df8d9d0970b867f5fd33b9';if((git rev-parse HEAD).Trim()-ne$s-or(git rev-parse HEAD^).Trim()-ne$p){throw'IDENTITY'}
+      $f=@(git diff --name-only $p HEAD);$e=@('Modules/VideoDownload/UI/VideoDownloadUrlComposite.cs','UI/V14DesignForm.cs','UI/V14DesignForm.Actions.cs','UI/V14DesignForm.CompactLayout.cs');if($f.Count-ne 4-or@($f|?{$_ -notin $e}).Count){throw'SCOPE'}
+      $shell=(@('UI/V14DesignForm.cs','UI/V14DesignForm.Actions.cs','UI/V14DesignForm.CompactLayout.cs')|%{Get-Content $_ -Raw})-join"`n";foreach($t in @('_url ','_url.','_clearUrl','Controls.Find')){if($shell.Contains($t)){throw"OLD=$t"}}
+      $o=Get-Content Modules/VideoDownload/UI/VideoDownloadUrlComposite.cs -Raw;foreach($t in @('_input','_clear','_icon','UrlText','FocusInput','SetDownloading','ApplyLanguage','Arrange','PlaceholderText')){if(-not$o.Contains($t)){throw"OWNER=$t"}}
+      $settings=Get-Content Modules/VideoDownload/UI/VideoDownloadSettingsComposite.cs -Raw;if(-not$settings.Contains('SetDownloading')){throw'SETTINGS_FREEZE'}
+      Write-Host 'SCOPE=PASS';Write-Host 'FANOUT=PASS';Write-Host 'NEW_OWNER=PASS';Write-Host 'OLD_OWNER_EXIT=PASS';Write-Host 'SEMANTIC_API=PASS';Write-Host 'BEHAVIOR_FREEZE=PASS';Write-Host 'VISUAL_FREEZE=PASS';Write-Host 'SETTINGS_FREEZE=PASS';Write-Host 'BUSINESS_CHAIN=PASS'
+   - uses: actions/setup-dotnet@v4
+     with: { dotnet-version: '10.0.x' }
+   - run: dotnet restore VideoDownloader.csproj
+   - name: Release build clean
+     shell: pwsh
+     run: |
+      $o=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1;$o|%{Write-Host $_};if($LASTEXITCODE-ne 0){throw'BUILD'};if(($o-join"`n")-notmatch'0 Warning\(s\)'-or($o-join"`n")-notmatch'0 Error\(s\)'){throw'CLEAN'};Write-Host 'BUILD_CLEAN=PASS'
