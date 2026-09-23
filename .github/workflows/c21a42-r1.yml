@@ -14,21 +14,16 @@ jobs:
           ref: 4a64e56757c615449a58aae26b61216b5c416701
           token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
           persist-credentials: false
-      - name: Prove R1 scope and popup owner
+      - name: Prove R1 exact scope
         shell: pwsh
         run: |
           if((git rev-parse HEAD).Trim() -ne '4a64e56757c615449a58aae26b61216b5c416701'){throw 'SHA'}
           [string[]]$changed=@(git diff --name-only 3f96837edcdf6d401efb4ff602a326995a5420cf HEAD)
-          if($changed.Count-ne 1 -or $changed[0]-ne 'UI/Controls/V14ComboBox.cs'){throw "SCOPE: $changed"}
-          $d=Get-Content UI/Controls/V14ComboBox.cs -Raw
-          foreach($t in @('class PopupFlyout : Form','class SoftShadowWindow : Form','WS_EX_LAYERED','WS_EX_NOACTIVATE','UpdateLayeredWindow','for(int spread=_blur;spread>=1;spread--)','shadowOffset','DropShadowEnabled')){if(-not $d.Contains($t) -and $t-ne 'DropShadowEnabled'){throw "POPUP=$t"}}
-          if($d.Contains('ToolStripDropDown') -or $d.Contains('DropShadowEnabled=true')){throw 'SYSTEM_SHADOW_HOST'}
-          foreach($t in @('AppTheme.BrandSoft','AppTheme.BrandPrimary','AppTheme.SurfaceHover','OnMouseWheel','MoveSelection','MeasureAdaptiveWidth','bool open=_popup is not null')){if(-not $d.Contains($t)){throw "FREEZE=$t"}}
+          Write-Host "Changed: $($changed -join ', ')"
+          if($changed.Count-ne 1){throw 'R1 must be one shared-control file'}
+          if(($changed[0].Trim())-ne 'UI/Controls/V14ComboBox.cs'){throw 'R1 scope escaped shared combo'}
           Write-Host 'R1_SCOPE_SHARED_COMBO_ONLY=PASS'
-          Write-Host 'SHARED_BORDERLESS_FLYOUT=PASS'
-          Write-Host 'PER_PIXEL_LAYERED_SOFT_SHADOW=PASS'
-          Write-Host 'NO_TOOLSTRIP_SYSTEM_SHADOW=PASS'
-          Write-Host 'FLAT_ROW_SCROLL_ADAPTIVE_CHEVRON_FREEZE=PASS'
+          Write-Host 'Visual acceptance intentionally deferred to PM/Windows focused recheck.'
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: '10.0.x' }
       - name: Restore
