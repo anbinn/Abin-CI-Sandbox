@@ -1,0 +1,38 @@
+name: C21A26 Namespace Recovery
+on:
+  push:
+    branches: [ main ]
+    paths: [ '.github/workflows/c21a26-namespace-recovery.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: 0649f2c9ed4225cf0e30d70126112439bc0c449a
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Prove exact recovery
+        shell: pwsh
+        run: |
+          $source='0649f2c9ed4225cf0e30d70126112439bc0c449a';$parent='7cfd698763c1b7cba05ca783f6249157cb8b009c'
+          if((git rev-parse HEAD).Trim() -ne $source -or (git rev-parse HEAD^).Trim() -ne $parent){throw 'IDENTITY=FAIL'}
+          $files=@(git diff --name-only $parent HEAD);$expected=@('Modules/MediaDiscovery/UI/MediaDiscoveryPageNavigation.cs','UI/V14DesignForm.MediaDiscovery.cs')
+          if($files.Count -ne 2 -or @($files|?{$_ -notin $expected}).Count){throw 'SCOPE=FAIL'}
+          $page=Get-Content 'UI/V14DesignForm.MediaDiscovery.cs' -Raw;$owner=Get-Content 'Modules/MediaDiscovery/UI/MediaDiscoveryPageNavigation.cs' -Raw
+          if(-not $page.Contains('using VideoDownloader.Modules.MediaDiscovery.UI;')){throw 'NAMESPACE=FAIL'}
+          if($page.Contains('Stack<MediaPageState> _mediaNavigationStack')){throw 'OLD_OWNER_EXIT=FAIL'}
+          foreach($t in @('MediaDiscoveryPageNavigation<MediaPageState>','_mediaPageNavigation.Push(previous)','_mediaPageNavigation.TryPop(out var previous)')){if(-not $page.Contains($t)){throw 'WIRING=FAIL'}}
+          foreach($t in @('Stack<TState> _backStack','TState Current','void Push','bool TryPop')){if(-not $owner.Contains($t)){throw 'OWNER=FAIL'}}
+          if(git diff $parent HEAD -- 'Modules/MediaDiscovery/UI/MediaPlayerViewport.cs' 'Modules/MediaDiscovery/UI/MediaIconLibrary.cs' 'Modules/MediaDiscovery/UI/MediaFullscreenHost.cs' 'Modules/MediaDiscovery/LibMpvPlaybackBackend.cs' 'UI/Controls/V14Surface.cs' 'UI/Controls/RoundedPanel.cs'){throw 'FREEZE=FAIL'}
+          Write-Host 'ONE_DELIVERY_COMMIT=PASS';Write-Host 'EXACT_SCOPE=PASS';Write-Host 'PAGE_CONTRACT_PRESERVED=PASS';Write-Host 'NAMESPACE_ONLY_FIX=PASS';Write-Host 'FREEZE=PASS'
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - run: dotnet restore VideoDownloader.csproj
+      - name: Release build clean
+        shell: pwsh
+        run: |
+          $o=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1;$o|%{Write-Host $_};if($LASTEXITCODE -ne 0){throw 'BUILD=FAIL'};if(($o-join "`n") -notmatch '0 Warning\(s\)' -or ($o-join "`n") -notmatch '0 Error\(s\)'){throw 'BUILD_CLEAN=FAIL'};Write-Host 'BUILD_CLEAN=PASS'
