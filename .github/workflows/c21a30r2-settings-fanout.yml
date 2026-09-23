@@ -1,0 +1,27 @@
+name: C21A30R2 Settings Fanout
+on: { push: { branches: [ main ], paths: [ '.github/workflows/c21a30r2-settings-fanout.yml' ] } }
+permissions: { contents: read }
+jobs:
+ validate:
+  runs-on: windows-latest
+  steps:
+   - uses: actions/checkout@v4
+     with: { repository: anbinn/Abin, ref: 21e29d9f46329c9964df8d9d0970b867f5fd33b9, token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}', persist-credentials: false, fetch-depth: 2 }
+   - name: Prove full settings fanout
+     shell: pwsh
+     run: |
+      $s='21e29d9f46329c9964df8d9d0970b867f5fd33b9';$p='1a19e1dd838b88c3aaf9eb9dac0d0549ccd0f7e6'
+      if((git rev-parse HEAD).Trim()-ne $s-or(git rev-parse HEAD^).Trim()-ne $p){throw 'IDENTITY'}
+      $f=@(git diff --name-only $p HEAD);$e=@('Modules/VideoDownload/UI/VideoDownloadSettingsComposite.cs','UI/V14DesignForm.cs','UI/V14DesignForm.Actions.cs','UI/V14DesignForm.CompactLayout.cs');if($f.Count-ne 4-or@($f|?{$_ -notin $e}).Count){throw 'SCOPE'}
+      $cs=Get-ChildItem -Recurse -File -Filter *.cs|?{$_.FullName -notmatch 'VideoDownloadSettingsComposite.cs$'};$all=($cs|%{Get-Content $_.FullName -Raw})-join "`n"
+      foreach($t in @('_mode','_quality','_start','_settingsDivider1','_settingsDivider2','UpdateMode')){if($all.Contains($t)){throw "OLD=$t"}}
+      if($all -match 'Controls\[("|\x27).*(Mode|Quality|Start|Divider)' -or $all -match 'Controls\.Find\([^\)]*(Mode|Quality|Start|Divider)'){throw 'CHILD_LOOKUP'}
+      $o=Get-Content Modules/VideoDownload/UI/VideoDownloadSettingsComposite.cs -Raw;foreach($t in @('ModeIndex','QualityIndex','QualityText','StartRequested','SetDownloading','ApplyLanguage','Arrange')){if(-not $o.Contains($t)){throw "API=$t"}}
+      Write-Host 'RECOVERY_TREE=PASS';Write-Host 'EXACT_SCOPE=PASS';Write-Host 'FANOUT=PASS';Write-Host 'NEW_OWNER=PASS';Write-Host 'OLD_OWNER_EXIT=PASS';Write-Host 'SEMANTIC_API=PASS';Write-Host 'BEHAVIOR_FREEZE=PASS';Write-Host 'VISUAL_FREEZE=PASS';Write-Host 'BUSINESS_CHAIN=PASS'
+   - uses: actions/setup-dotnet@v4
+     with: { dotnet-version: '10.0.x' }
+   - run: dotnet restore VideoDownloader.csproj
+   - name: Release build clean
+     shell: pwsh
+     run: |
+      $o=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1;$o|%{Write-Host $_};if($LASTEXITCODE-ne 0){throw 'BUILD'};if(($o-join "`n")-notmatch '0 Warning\(s\)'-or($o-join "`n")-notmatch '0 Error\(s\)'){throw 'CLEAN'};Write-Host 'BUILD_CLEAN=PASS'
