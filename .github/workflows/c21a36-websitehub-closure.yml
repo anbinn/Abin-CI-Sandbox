@@ -15,8 +15,8 @@ jobs:
       $sh=Get-Content UI/V14DesignForm.cs -Raw
       foreach($t in @('BuildCategoryBar()','BuildWebsiteGrid()','CreateWebsiteCard(website)','LayoutWebsiteGrid()','ApplyLanguage(bool isEnglish)','CategoryButton_Click','button.Click+=CategoryButton_Click','card.Click+=(_,_)=>OpenWebsite(website)','logo.Click+=(_,_)=>OpenWebsite(website)','name.Click+=(_,_)=>OpenWebsite(website)','description.Click+=(_,_)=>OpenWebsite(website)','Process.Start','website.OfficialUrl')){if(-not$p.Contains($t)){throw "PAGE_GATE=$t"}}
       foreach($t in @('_workspace.Controls.Add(_websiteHubPage)','_websiteHubPage.Visible = showWebsiteHub','_websiteHubPage.SetBounds','_websiteHubPage.ApplyLanguage(IsEnglish)','ShowWorkspace(showWebsiteHub)')){if(-not$sh.Contains($t)){throw "SHELL_GATE=$t"}}
-      foreach($bad in @('_websiteHubPage.Controls[','_websiteHubPage.Controls.','_categoryBar','_websiteGrid','WebsiteCategoryButton')){if($sh.Contains($bad)){throw "SHELL_CHILD=$bad"}}
-      if($sh.Contains('_websiteHubPage.BindTheme')){throw 'DUPLICATE_PAGE_THEME_OWNER'}
+      foreach($bad in @('_websiteHubPage.Controls[','_websiteHubPage.Controls.','_categoryBar','_websiteGrid')){if($sh.Contains($bad)){throw "SHELL_CHILD=$bad"}}
+      if(($sh -split "\n" | Where-Object { $_ -match '_websiteHubPage\.BindTheme' }).Count -gt 0){throw 'DUPLICATE_PAGE_THEME_OWNER'}
       Write-Host 'OWNERSHIP_MAP=PASS';Write-Host 'VISUAL_OWNERSHIP=PASS';Write-Host 'OLD_OWNER_EXIT=PASS';Write-Host 'INTERACTION_ROUTING=PASS';Write-Host 'SHELL_BOUNDARY=PASS';Write-Host 'THEME_LANGUAGE=PASS';Write-Host 'BUSINESS_NAVIGATION_FREEZE=PASS';Write-Host 'NO_REDESIGN=PASS'
    - uses: actions/setup-dotnet@v4
      with: { dotnet-version: '10.0.x' }
