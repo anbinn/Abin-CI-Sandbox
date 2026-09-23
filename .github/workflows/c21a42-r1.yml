@@ -14,6 +14,7 @@ jobs:
           ref: 4a64e56757c615449a58aae26b61216b5c416701
           token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
           persist-credentials: false
+          fetch-depth: 0
       - name: Prove R1 exact scope
         shell: pwsh
         run: |
