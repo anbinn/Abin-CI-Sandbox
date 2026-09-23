@@ -1,0 +1,48 @@
+name: C21A42 R2 Runtime Writer Popup
+on:
+  push:
+    branches: [ v16-t90-r2-validation ]
+    paths: [ '.github/workflows/c21a42-r2.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: 78c61a8a99076d4658447e6360b1e40dce763719
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Prove R2 scope and ownership
+        shell: pwsh
+        run: |
+          if((git rev-parse HEAD).Trim() -ne '78c61a8a99076d4658447e6360b1e40dce763719'){throw 'SHA'}
+          [string[]]$changed=@(git diff --name-only 4a64e56757c615449a58aae26b61216b5c416701 HEAD)
+          $expected=@('UI/Controls/V14ComboBox.cs','UI/V14DesignForm.MediaDiscovery.cs')
+          foreach($x in $changed){if($expected-notcontains $x){throw "SCOPE $x"}}
+          if($changed.Count-ne 2){throw "SCOPE COUNT $($changed.Count)"}
+          $m=Get-Content UI/V14DesignForm.MediaDiscovery.cs -Raw
+          $d=Get-Content UI/Controls/V14ComboBox.cs -Raw
+          if(-not $m.Contains('_headerSubtitle.Text="Discover movies, series, anime and more"')){throw 'FIXED EN SUBTITLE'}
+          if($m.Contains('ApplyMediaDiscoveryLanguage(){if(!_mediaUiReady)return;_navPlaylist.Text=T("媒体发现","Media Discovery");if(_mediaCurrentPage.Kind==MediaPageKind.Home)ApplyMediaDiscoveryHeader();')){throw 'LOCAL LANGUAGE STILL WRITES SHELL HEADER'}
+          if($d.Contains('SoftShadowWindow') -or $d.Contains('UpdateLayeredWindow') -or $d.Contains('WS_EX_LAYERED') -or $d.Contains('ToolStripDropDown')){throw 'UNSTABLE OR SYSTEM POPUP HOST'}
+          foreach($t in @('class PopupFlyout : Form','FormBorderStyle=FormBorderStyle.None','RoundedPanel.CreateRoundedRectangle','AppTheme.BrandSoft','AppTheme.BrandPrimary','OnMouseWheel','MoveSelection','MeasureAdaptiveWidth')){if(-not $d.Contains($t)){throw "POPUP FREEZE $t"}}
+          Write-Host 'R2_SCOPE=PASS'
+          Write-Host 'MEDIA_LOCAL_LANGUAGE_NO_SHELL_HEADER_WRITE=PASS'
+          Write-Host 'FIXED_ENGLISH_SUBTITLE_OWNER=PASS'
+          Write-Host 'CLEAN_ROUNDED_FLYOUT_NO_LAYERED_ARTIFACT_PATH=PASS'
+          Write-Host 'VISUAL_ACCEPTANCE_DEFERRED=TRUE'
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Restore
+        run: dotnet restore VideoDownloader.csproj
+      - name: Release build clean
+        shell: pwsh
+        run: |
+          $o=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1
+          $o|%{Write-Host $_}
+          if($LASTEXITCODE-ne 0){throw 'BUILD'}
+          $s=$o-join "`n"
+          if($s-notmatch '0 Warning\(s\)' -or $s-notmatch '0 Error\(s\)'){throw 'CLEAN'}
