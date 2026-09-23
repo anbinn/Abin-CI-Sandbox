@@ -1,0 +1,13 @@
+name: C21A33R4 Precommit Release
+on: { push: { branches: [ main ], paths: [ '.github/workflows/c21a33r4-prebuild.yml' ] } }
+permissions: { contents: read }
+jobs:
+ build:
+  runs-on: windows-latest
+  steps:
+   - uses: actions/checkout@v4
+     with: { repository: anbinn/Abin, ref: b87f85e418c806b735a11bd931b10b5dc161645b, token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}', persist-credentials: false, fetch-depth: 2 }
+   - uses: actions/setup-dotnet@v4
+     with: { dotnet-version: '10.0.x' }
+   - run: dotnet restore VideoDownloader.csproj
+   - run: dotnet build VideoDownloader.csproj --configuration Release --no-restore
