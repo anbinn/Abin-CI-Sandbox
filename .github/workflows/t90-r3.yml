@@ -1,0 +1,52 @@
+name: T90 R3 Owner Consolidation
+on:
+  push:
+    branches: [ v16-t90-r3-validation ]
+    paths: [ '.github/workflows/t90-r3.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: 0009d791981810afacbcc4301dadc5e572f73b7e
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Prove owner consolidation
+        shell: pwsh
+        run: |
+          if((git rev-parse HEAD).Trim() -ne '0009d791981810afacbcc4301dadc5e572f73b7e'){throw 'SHA'}
+          [string[]]$changed=@(git diff --name-only 78c61a8a99076d4658447e6360b1e40dce763719 HEAD)
+          $expected=@('UI/Controls/V14ComboBox.cs','UI/V14DesignForm.HeaderAnimation.cs','UI/V14DesignForm.MediaDiscovery.CurrentSource.cs')
+          foreach($x in $changed){if($expected-notcontains $x){throw "SCOPE $x"}}
+          if($changed.Count-ne 3){throw "COUNT $($changed.Count)"}
+          $h=Get-Content UI/V14DesignForm.HeaderAnimation.cs -Raw
+          $m=Get-Content UI/V14DesignForm.MediaDiscovery.cs -Raw
+          $s=Get-Content UI/V14DesignForm.MediaDiscovery.CurrentSource.cs -Raw
+          $d=Get-Content UI/Controls/V14ComboBox.cs -Raw
+          if($h.Contains('发现电影、剧集、动漫及更多内容') -or $h.Contains('_headerSubtitle.Text')){throw 'HEADER DUP OWNER'}
+          if(-not $h.Contains('ApplyMediaDiscoveryHeader();')){throw 'HEADER DELEGATION'}
+          if(-not $m.Contains('_headerSubtitle.Text="Discover movies, series, anime and more"')){throw 'HEADER OWNER'}
+          if($s.Contains('MediaDetailRouteSelector') -or $s.Contains('line.Visible=episode.Visible=false')){throw 'LINE DUP OWNER'}
+          if(-not $s.Contains('line.SetBounds(play.Right+Px(18)')){throw 'LINE OWNER NOT VISIBLE'}
+          if($d.Contains('ToolStrip') -or $d.Contains('PopupRenderer')){throw 'STALE POPUP PATH'}
+          Write-Host 'HEADER_SINGLE_CONTENT_OWNER=PASS'
+          Write-Host 'LINE_SINGLE_VISIBLE_SELECTOR=PASS'
+          Write-Host 'NO_NATIVE_MENU_PATH_IN_ACTIVE_LINE_CHAIN=PASS'
+          Write-Host 'STALE_SHARED_POPUP_PATH_EXIT=PASS'
+          Write-Host 'WINDOWS_VISUAL_PASS_NOT_CLAIMED=TRUE'
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Restore
+        run: dotnet restore VideoDownloader.csproj
+      - name: Release build clean
+        shell: pwsh
+        run: |
+          $o=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1
+          $o|%{Write-Host $_}
+          if($LASTEXITCODE-ne 0){throw 'BUILD'}
+          $s=$o-join "`n"
+          if($s-notmatch '0 Warning\(s\)' -or $s-notmatch '0 Error\(s\)'){throw 'CLEAN'}
