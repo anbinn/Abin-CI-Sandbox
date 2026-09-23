@@ -29,7 +29,8 @@ jobs:
           $progress=Get-Content UI/Controls/TaskProgressCard.cs -Raw
           $theme=Get-Content UI/ThemeManager.cs -Raw
           foreach($t in @('RunRealMediaSearchAsync','PushMediaPage','BackMediaPage','BuildPlayerPage','SetMediaPlayerFullscreen')){if(-not $media.Contains($t)){throw "MEDIA=$t"}}
-          foreach($t in @('_settingsCard.StartRequested += Start_Click','_saveCard.BrowseRequested += Browse_Click','_progressCard.CancelRequested += Cancel_Click','_videoDownloadTaskRunner.RunAsync','_progressCard.SetLiveStats')){if(-not ($shell+$actions+(Get-Content UI/V14DesignForm.LiveStats.cs -Raw)).Contains($t)){throw "DOWNLOAD=$t"}}
+          $downloadAll=$shell+$actions+(Get-Content UI/V14DesignForm.LiveStats.cs -Raw)
+          foreach($t in @('_settingsCard.StartRequested += Start_Click','_saveCard.BrowseRequested += Browse_Click','_progressCard.CancelRequested += Cancel_Click','_videoDownloadTaskRunner.RunAsync','_progressCard.SetLiveStats')){if(-not $downloadAll.Contains($t)){throw "DOWNLOAD=$t"}}
           foreach($t in @('card.Click+=(_,_)=>OpenWebsite(website)','logo.Click+=(_,_)=>OpenWebsite(website)','name.Click+=(_,_)=>OpenWebsite(website)','description.Click+=(_,_)=>OpenWebsite(website)','Process.Start','website.OfficialUrl')){if(-not $web.Contains($t)){throw "WEB=$t"}}
           foreach($bad in @('_websiteHubPage.Controls[','_websiteHubPage.Controls.','_saveCard.Controls[','_settingsCard.Controls[','_urlCard.Controls[','_progressCard.Controls[')){if(($shell+$actions).Contains($bad)){throw "OLD_OWNER=$bad"}}
           if(($shell -split "\n" | Where-Object { $_ -match '_websiteHubPage\.BindTheme' }).Count -gt 0){throw 'WEB_STYLE_STACK'}
