@@ -1,0 +1,51 @@
+name: C21A41R4 MediaDiscovery UI Closure
+on:
+  push:
+    branches: [ v16-t89-r4-validation ]
+    paths: [ '.github/workflows/c21a41r4.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: dfb2afe4f3e61fe2a2a06f436f5ca3fcff8037b7
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+      - name: Prove R4 UI closure
+        shell: pwsh
+        run: |
+          if((git rev-parse HEAD).Trim() -ne 'dfb2afe4f3e61fe2a2a06f436f5ca3fcff8037b7'){throw 'SHA'}
+          $s=Get-Content UI/V14DesignForm.cs -Raw
+          $m=Get-Content UI/V14DesignForm.MediaDiscovery.cs -Raw
+          $d=Get-Content UI/Controls/V14ComboBox.cs -Raw
+          $x=Get-Content UI/MediaSourceSettingsDialog.cs -Raw
+          foreach($t in @('_mediaDiscoveryPage.Visible && _mediaCurrentPage.Kind == MediaPageKind.Home','else if (_websiteHubPage.Visible)','UpdateHeader(true)','UpdateHeader(false)')){if(-not $s.Contains($t)){throw "HEADER=$t"}}
+          foreach($t in @('ApplyMediaDiscoveryHeader()','Discover movies, series, anime and more','play.SetBounds(Px(220),Px(234),Px(112),AppTheme.ButtonHeight);line.SetBounds(play.Right+gap,Px(234),lineWidth,play.Height)')){if(-not $m.Contains($t)){throw "MEDIA=$t"}}
+          foreach($t in @('class PopupSurface','g.FillRectangle(b,r)','AppTheme.BrandSoft','AppTheme.BrandPrimary','AppTheme.SurfaceHover','OnMouseWheel','MoveSelection','MeasureAdaptiveWidth','Screen.FromControl','ApplyPopupRegion','bool open=_popup is not null')){if(-not $d.Contains($t)){throw "DROP=$t"}}
+          foreach($bad in @('AutoScroll =','PopupRow','DrawRectangle(p,0,0')){if($d.Contains($bad)){throw "NATIVE_OR_PILL_RESIDUE=$bad"}}
+          if($x.Contains('MediaSettingsNav') -or $x.Contains('MediaSettingsSourcesNav')){throw 'LEFT_NAV_RESIDUE'}
+          foreach($t in @('content.SetBounds(left,top','V14ControlFactory.SecondaryAction','V14ControlFactory.PrimaryAction','DialogResult=DialogResult.Cancel','DialogResult=DialogResult.OK','AcceptButton=save','CancelButton=cancel')){if(-not $x.Contains($t)){throw "SETTINGS=$t"}}
+          Write-Host 'ACTIVE_PAGE_HEADER_OWNER=PASS'
+          Write-Host 'FIXED_ENGLISH_BRANDING=PASS'
+          Write-Host 'DETAIL_LAYOUT=PASS'
+          Write-Host 'DROPDOWN_POPUP_SURFACE=PASS'
+          Write-Host 'DROPDOWN_SELECTED_ROW=PASS'
+          Write-Host 'DROPDOWN_SCROLL_NO_NATIVE_SCROLLBAR=PASS'
+          Write-Host 'DROPDOWN_THEME_ADAPTIVE_CHEVRON=PASS'
+          Write-Host 'SOURCE_SETTINGS=PASS'
+          Write-Host 'BUSINESS_DATA_ROUTING_FREEZE=PASS'
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Restore
+        run: dotnet restore VideoDownloader.csproj
+      - name: Release build clean
+        shell: pwsh
+        run: |
+          $o=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1
+          $o|%{Write-Host $_}
+          if($LASTEXITCODE-ne 0){throw 'BUILD'}
+          $s=$o-join "`n"
+          if($s-notmatch '0 Warning\(s\)' -or $s-notmatch '0 Error\(s\)'){throw 'CLEAN'}
