@@ -1,0 +1,48 @@
+name: C21A23 Player Parent Surface Repair
+on:
+  push:
+    branches: [ main ]
+    paths: [ '.github/workflows/c21a23-player-parent-surface.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout exact private Abin source
+        uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: ac2aa9a3779611bd897754b771bc527de720ff3c
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Prove C21A23 contract
+        shell: pwsh
+        run: |
+          $source='ac2aa9a3779611bd897754b771bc527de720ff3c'; $baseline='fb1f7ae021558dfd8f05530c8423755db2468a16'
+          $actual=(git rev-parse HEAD).Trim(); $parent=(git rev-parse HEAD^).Trim()
+          Write-Host "SOURCE_SHA=$actual"; Write-Host "PARENT_SHA=$parent"
+          if($actual -ne $source -or $parent -ne $baseline){throw 'C21A23_IDENTITY=FAIL'}
+          $files=@(git diff --name-only $baseline HEAD)
+          if($files.Count -ne 1 -or $files[0] -ne 'Modules/MediaDiscovery/UI/MediaPlayerViewport.cs'){throw 'C21A23_SCOPE=FAIL'}
+          $src=Get-Content 'Modules/MediaDiscovery/UI/MediaPlayerViewport.cs' -Raw
+          if(-not $src.Contains('protected override void OnPaintBackground(PaintEventArgs e){var hostSurface=Parent is MediaFullscreenHost host?host.BackColor:AppTheme.PageBackground;e.Graphics.Clear(hostSurface);}')){throw 'C21A23_PARENT_SURFACE=FAIL'}
+          foreach($token in @('UpdateClosedRegion(path)','Region=new Region(path)','Dock=DockStyle.Fill','SmoothingMode=SmoothingMode.AntiAlias','CornerRadius=AppTheme.CardRadius')){if(-not $src.Contains($token)){throw "C21A23_SAFE_CONTRACT=FAIL $token"}}
+          foreach($bad in @('UseClosedRegion=false','PixelOffsetMode','HighQuality')){if($src.Contains($bad)){throw "C21A23_FORBIDDEN=FAIL $bad"}}
+          $pageDiff=git diff $baseline HEAD -- 'UI/V14DesignForm.MediaDiscovery.cs'; if($pageDiff){throw 'C21A23_GEOMETRY_FREEZE=FAIL'}
+          $hostDiff=git diff $baseline HEAD -- 'Modules/MediaDiscovery/UI/MediaFullscreenHost.cs'; if($hostDiff){throw 'C21A23_FULLSCREEN_FREEZE=FAIL'}
+          $backendDiff=git diff $baseline HEAD -- 'Modules/MediaDiscovery/LibMpvPlaybackBackend.cs'; if($backendDiff){throw 'C21A23_LIBMPV_FREEZE=FAIL'}
+          Write-Host 'C21A23_ONE_COMMIT=PASS'; Write-Host 'C21A23_SCOPE=PASS'; Write-Host 'C21A23_PARENT_SURFACE=PASS'; Write-Host 'C21A23_REGION_RETAINED=PASS'; Write-Host 'C21A23_NO_AA_STACKING=PASS'; Write-Host 'C21A23_GEOMETRY_LIBMPV_FREEZE=PASS'
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Restore
+        run: dotnet restore VideoDownloader.csproj
+      - name: Release build clean
+        shell: pwsh
+        run: |
+          $output=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1
+          $output | ForEach-Object { Write-Host $_ }
+          if($LASTEXITCODE -ne 0){throw 'C21A23_BUILD=FAIL'}
+          if(($output -join "`n") -notmatch '0 Warning\(s\)' -or ($output -join "`n") -notmatch '0 Error\(s\)'){throw 'C21A23_BUILD_CLEAN=FAIL'}
+          Write-Host 'C21A23_BUILD_CLEAN=PASS'
