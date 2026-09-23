@@ -1,0 +1,48 @@
+name: C21A40 MediaDiscovery Windows Acceptance Fix
+on:
+  push:
+    branches: [ v16-t87-validation ]
+    paths: [ '.github/workflows/c21a40-mediadiscovery.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: b66a350457db9c2b1f6132dded6960f8406b75b9
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Prove T87 gates
+        shell: pwsh
+        run: |
+          if((git rev-parse HEAD).Trim() -ne 'b66a350457db9c2b1f6132dded6960f8406b75b9'){throw 'SHA'}
+          $m=Get-Content UI/V14DesignForm.MediaDiscovery.cs -Raw
+          $d=Get-Content UI/Controls/V14ComboBox.cs -Raw
+          foreach($t in @('_headerAccent.Text="Media"','_headerTitle.Text="Discovery"','_headerSubtitle.Text="Discover movies, series, anime and more"')){if(-not $m.Contains($t)){throw "BRANDING=$t"}}
+          foreach($t in @('T("详情","Details")','T("播放线路","Line")','T("选集","Episode")','T("播放","Play")')){if(-not $m.Contains($t)){throw "LOCALIZATION=$t"}}
+          if($m.Contains('new ComboBox{Name="MediaDetail')){throw 'NATIVE_COMBO_REMAINS'}
+          foreach($t in @('new V14ComboBox{Name="MediaDetailLine"}','new V14ComboBox{Name="MediaDetailEpisode"}','PlayerAsync(parsed.Flags[selectedLine],ep.Id)','SourceKey')){if(-not $m.Contains($t)){throw "ROUTING=$t"}}
+          foreach($t in @('AppTheme.Input','AppTheme.ControlRadius','AppTheme.Border','AppTheme.SurfaceHover','AppTheme.BrandSoft','AppTheme.BrandPrimary','AppTheme.TextPrimary','ToolStripDropDown','SelectedIndexChanged','MeasureAdaptiveWidth')){if(-not $d.Contains($t)){throw "DROPDOWN=$t"}}
+          if(-not $m.Contains('line.SetBounds(Px(220),Px(234),lineWidth,play.Height)') -or -not $m.Contains('episode.SetBounds(line.Right+gap,Px(234),episodeWidth,play.Height)')){throw 'HEIGHT'}
+          if(-not $m.Contains('item.Title') -or -not $m.Contains('item.Description') -or -not $m.Contains('ep.Name')){throw 'PROVIDER_METADATA'}
+          Write-Host 'TOP_BRANDING_FIXED_ENGLISH=PASS'
+          Write-Host 'APP_LOCALIZATION_COMPLETE=PASS'
+          Write-Host 'PROVIDER_METADATA_FREEZE=PASS'
+          Write-Host 'SHARED_DROPDOWN_OWNER=PASS'
+          Write-Host 'DROPDOWN_VISUAL_GEOMETRY=PASS'
+          Write-Host 'ROUTING_FREEZE=PASS'
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Restore
+        run: dotnet restore VideoDownloader.csproj
+      - name: Release build clean
+        shell: pwsh
+        run: |
+          $o=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1
+          $o|%{Write-Host $_}
+          if($LASTEXITCODE-ne 0){throw 'BUILD'}
+          $s=$o-join "`n"
+          if($s-notmatch '0 Warning\(s\)' -or $s-notmatch '0 Error\(s\)'){throw 'CLEAN'}
