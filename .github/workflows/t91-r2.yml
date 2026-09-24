@@ -1,0 +1,53 @@
+name: T91 R2 Player Composition
+on:
+  push:
+    branches: [ v16-t91-r2-validation ]
+    paths: [ '.github/workflows/t91-r2.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: 307923d6e1dd8bc9c6f1212b4c062b4d469ff686
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Player composition gates
+        shell: pwsh
+        run: |
+          if((git rev-parse HEAD).Trim() -ne '307923d6e1dd8bc9c6f1212b4c062b4d469ff686'){throw 'SHA'}
+          [string[]]$changed=@(git diff --name-only c76b3a78c15cbc3c6606d2bdfc99787d723fec39 HEAD)
+          if($changed.Count-ne 1 -or $changed[0]-ne 'Modules/MediaDiscovery/UI/MediaPlayerViewport.cs'){throw "SCOPE $($changed -join ',')"}
+          $p=Get-Content Modules/MediaDiscovery/UI/MediaPlayerViewport.cs -Raw
+          foreach($t in @('PlayerAlphaOverlayWindow','WS_EX_LAYERED','WS_EX_TRANSPARENT','WS_EX_NOACTIVATE','UpdateLayeredWindow','Format32bppPArgb','AC_SRC_ALPHA','PointToScreen','ShowWithoutActivation')){if(-not $p.Contains($t)){throw "ALPHA $t"}}
+          if($p.Contains('TransparencyKey')){throw 'FAKE ALPHA'}
+          if($p.Contains('BackColor=ControlSurfaceColor')){throw 'OPAQUE SLAB'}
+          foreach($t in @('MediaPlayerPlay','MediaPlayerSeek','MediaPlayerTime','MediaPlayerVolume','MediaPlayerFullscreen','LayoutToViewport','FullscreenStateChanged')){if(-not $p.Contains($t)){throw "SEMANTIC $t"}}
+          $m=Get-Content UI/V14DesignForm.MediaDiscovery.cs -Raw
+          foreach($t in @('backend.Initialize(surface.RenderWindowHandle)','backend.Load(item.FinalUrl)','backend.TogglePause()','backend.ToggleMute()','backend.Seek(')){if(-not $m.Contains($t)){throw "PLAYBACK FREEZE $t"}}
+          $combo=Get-Content UI/Controls/V14ComboBox.cs -Raw
+          if(-not $combo.Contains('new Rectangle(ScalePopup(12),r.Top')){throw 'DROPDOWN R1 FREEZE'}
+          if(-not $m.Contains('Discover movies, series, anime and more')){throw 'LANGUAGE OWNER'}
+          Write-Host 'PLAYER_COMPOSITION_SINGLE_OWNER=PASS'
+          Write-Host 'PLAYER_TRUE_ALPHA_MECHANISM=PASS'
+          Write-Host 'PLAYER_ZORDER_INPUT_SOURCE_GATE=PASS'
+          Write-Host 'PLAYER_DPI_GEOMETRY_SOURCE_GATE=PASS'
+          Write-Host 'PLAYER_FULLSCREEN_LIFECYCLE_SOURCE_GATE=PASS'
+          Write-Host 'PLAYER_PLAYBACK_FREEZE=PASS'
+          Write-Host 'UI_OWNERSHIP_GATE=PASS'
+          Write-Host 'WINDOWS_VISUAL_PASS_NOT_CLAIMED=TRUE'
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Restore
+        run: dotnet restore VideoDownloader.csproj
+      - name: Release build clean
+        shell: pwsh
+        run: |
+          $o=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1
+          $o|%{Write-Host $_}
+          if($LASTEXITCODE-ne 0){throw 'BUILD'}
+          $s=$o-join "`n"
+          if($s-notmatch '0 Warning\(s\)' -or $s-notmatch '0 Error\(s\)'){throw 'CLEAN'}
