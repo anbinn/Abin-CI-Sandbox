@@ -11,7 +11,7 @@ jobs:
    - uses: actions/checkout@v4
      with:
       repository: anbinn/Abin
-      ref: 6f22dfcc6c2b5391b12052711633a8927908bbb9
+      ref: 14ef02bee3c50adc6b18f53fc2b73ad84b701a1e
       token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
       persist-credentials: false
    - uses: actions/setup-dotnet@v4
@@ -21,7 +21,7 @@ jobs:
      run: |
       $actual=(git rev-parse HEAD).Trim()
       Write-Host "PRODUCT_SOURCE_SHA=$actual"
-      if($actual -ne '6f22dfcc6c2b5391b12052711633a8927908bbb9'){throw "SOURCE_SHA_MISMATCH $actual"}
+      if($actual -ne '14ef02bee3c50adc6b18f53fc2b73ad84b701a1e'){throw "SOURCE_SHA_MISMATCH $actual"}
       Write-Host "PRODUCT_SOURCE_SHA_MATCH=PASS"
    - run: dotnet restore VideoDownloader.csproj
    - name: Release build clean
@@ -37,12 +37,14 @@ jobs:
        var product=System.IO.Path.GetFullPath("bin/Release/net10.0-windows/阿斌视频下载器.dll");Console.WriteLine("PRODUCT_ASSEMBLY="+product);if(!System.IO.File.Exists(product))throw new Exception("PRODUCT_ASSEMBLY_MISSING");Console.WriteLine("PRODUCT_ASSEMBLY_EXISTS=PASS");var asm=Assembly.LoadFrom(product);Type T(string n)=>asm.GetType("VideoDownloader.UI.Controls."+n,true)!;
        object New(Type t)=>Activator.CreateInstance(t,BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic,null,null,null)!;
        object NewIcon(string icon){var et=T("MediaVectorIcon");var ev=Enum.Parse(et,icon);return Activator.CreateInstance(T("MediaIconButton"),BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic,null,new object[]{ev},null)!;}
-       var form=new Form(){Size=new Size(900,600)};var vp=(Control)New(T("MediaPlayerViewport"));vp.Dock=DockStyle.Fill;form.Controls.Add(vp);var bar=(Control)New(T("MediaPlayerControlBar"));vp.Controls.Add(bar);
+       var form=new Form(){Size=new Size(900,600)};var vp=(Control)New(T("MediaPlayerViewport"));vp.Dock=DockStyle.Fill;form.Controls.Add(vp);var render=(Control)vp.GetType().GetField("_renderSurface",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(vp)!;render.BackColor=Color.Lime;var bar=(Control)New(T("MediaPlayerControlBar"));vp.Controls.Add(bar);
        Control Add(string type,string name,string? icon=null){var c=(Control)(type=="MediaIconButton"?NewIcon(icon!):New(T(type)));c.Name=name;bar.Controls.Add(c);return c;}
        Add("MediaIconButton","MediaPlayerPlay","Pause");Add("V14SeekProgress","MediaPlayerSeek");bar.Controls.Add(new Label(){Name="MediaPlayerTime",Text="00:00 / 00:00"});Add("MediaIconButton","MediaPlayerVolume","Volume");Add("MediaIconButton","MediaPlayerFullscreen","Fullscreen");
        form.Show();Application.DoEvents();bar.GetType().GetMethod("LayoutToViewport",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)!.Invoke(bar,null);Application.DoEvents();
        var ov=(Form)bar.GetType().GetField("_overlay",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(bar)!;if(form.Handle==IntPtr.Zero||vp.Handle==IntPtr.Zero||bar.Handle==IntPtr.Zero||ov.Handle==IntPtr.Zero)throw new Exception("HANDLE_ZERO");
        var expected=new Rectangle(bar.PointToScreen(Point.Empty),bar.Size);if(ov.Bounds!=expected)throw new Exception("BOUNDS");
+       var gap=new Point(bar.Width/2,5);if(bar.Region is null||bar.Region.IsVisible(gap))throw new Exception("SEMANTIC_HOST_REGION_OCCLUDES_GAP");foreach(Control child in bar.Controls){if(child.Visible&&child.Width>0&&child.Height>0&&!bar.Region.IsVisible(new Point(child.Left+child.Width/2,child.Top+child.Height/2)))throw new Exception("SEMANTIC_HOST_REGION_CLIPS_"+child.Name);}Console.WriteLine("SEMANTIC_HOST_REGION_HOLES=PASS");
+       using(var px=new Bitmap(1,1)){using(var sg=Graphics.FromImage(px)){var sp=bar.PointToScreen(gap);sg.CopyFromScreen(sp,Point.Empty,new Size(1,1));}var p=px.GetPixel(0,0);Console.WriteLine($"ALPHA_GAP_PIXEL={p.R},{p.G},{p.B}");if(p.G<=70||p.G<=p.R+30)throw new Exception("ALPHA_GAP_NOT_SHOWING_RENDER_SURFACE");Console.WriteLine("VIDEO_VISIBLE_THROUGH_ALPHA_GAP=PASS");}
        using(var bmp=new Bitmap(64,64)){using var g=Graphics.FromImage(bmp);var marker=Color.FromArgb(255,13,29,47);g.Clear(marker);using var pe=new PaintEventArgs(g,new Rectangle(0,0,64,64));var bg=bar.GetType().GetMethod("OnPaintBackground",BindingFlags.Instance|BindingFlags.NonPublic)!;bg.Invoke(bar,new object[]{pe});if(bmp.GetPixel(32,32).ToArgb()!=marker.ToArgb())throw new Exception("CONTROLBAR_BACKGROUND_PAINTED");Console.WriteLine("CONTROLBAR_BACKGROUND_NO_FILL=PASS");}
        int ex=(int)ov.GetType().GetProperty("ExtendedStyle",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)!.GetValue(ov)!;const int L=0x80000,TN=0x20,NA=0x08000000;if((ex&L)==0||(ex&TN)==0||(ex&NA)==0)throw new Exception("EXSTYLE");
        vp.Size=new Size(700,450);Application.DoEvents();bar.Visible=false;Application.DoEvents();bar.Visible=true;Application.DoEvents();bar.GetType().GetMethod("LayoutToViewport",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)!.Invoke(bar,null);Application.DoEvents();
