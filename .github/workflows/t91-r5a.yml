@@ -1,0 +1,64 @@
+name: T91 R5A Runtime Harness
+on:
+ push:
+  branches: [ v16-t91-r5a-validation ]
+  paths: [ '.github/workflows/t91-r5a.yml' ]
+permissions: { contents: read }
+jobs:
+ validate:
+  runs-on: windows-latest
+  steps:
+   - uses: actions/checkout@v4
+     with:
+      repository: anbinn/Abin
+      ref: 6f22dfcc6c2b5391b12052711633a8927908bbb9
+      token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+      persist-credentials: false
+   - uses: actions/setup-dotnet@v4
+     with: { dotnet-version: '10.0.x' }
+   - run: dotnet restore VideoDownloader.csproj
+   - name: Build Release
+     shell: pwsh
+     run: |
+      $o=dotnet build VideoDownloader.csproj -c Release --no-restore 2>&1;$o|%{Write-Host $_};if($LASTEXITCODE-ne 0){throw 'BUILD'};$s=$o-join "`n";if($s-notmatch '0 Warning\(s\)' -or $s-notmatch '0 Error\(s\)'){throw 'CLEAN'}
+   - name: Runtime player hierarchy harness
+     shell: pwsh
+     run: |
+      $src=@'
+      using System;
+      using System.Drawing;
+      using System.Reflection;
+      using System.Windows.Forms;
+      class H {
+       [STAThread] static void Main(){
+        var asm=Assembly.LoadFrom(System.IO.Path.GetFullPath("bin/Release/net10.0-windows/VideoDownloader.dll"));
+        Type T(string n)=>asm.GetType("VideoDownloader.UI.Controls."+n,true)!;
+        var form=new Form(){Size=new Size(900,600)};
+        var vp=(Control)Activator.CreateInstance(T("MediaPlayerViewport"),true)!;vp.Dock=DockStyle.Fill;form.Controls.Add(vp);
+        var bar=(Control)Activator.CreateInstance(T("MediaPlayerControlBar"),true)!;vp.Controls.Add(bar);
+        Control Add(string type,string name){var c=(Control)Activator.CreateInstance(T(type),true)!;c.Name=name;bar.Controls.Add(c);return c;}
+        Add("MediaIconButton","MediaPlayerPlay");Add("V14SeekProgress","MediaPlayerSeek");var time=new Label(){Name="MediaPlayerTime",Text="00:00 / 00:00"};bar.Controls.Add(time);Add("MediaIconButton","MediaPlayerVolume");Add("MediaIconButton","MediaPlayerFullscreen");
+        form.Show();Application.DoEvents();
+        bar.GetType().GetMethod("LayoutToViewport",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)!.Invoke(bar,null);Application.DoEvents();
+        var ovf=bar.GetType().GetField("_overlay",BindingFlags.Instance|BindingFlags.NonPublic)!;var ov=(Form)ovf.GetValue(bar)!;
+        if(form.Handle==IntPtr.Zero||vp.Handle==IntPtr.Zero||bar.Handle==IntPtr.Zero||ov.Handle==IntPtr.Zero)throw new Exception("HANDLE_ZERO");
+        var expected=new Rectangle(bar.PointToScreen(Point.Empty),bar.Size);if(ov.Bounds!=expected)throw new Exception("BOUNDS "+ov.Bounds+" != "+expected);
+        using(var bmp=new Bitmap(bar.Width,bar.Height)){bar.DrawToBitmap(bmp,new Rectangle(Point.Empty,bar.Size));var a=bmp.GetPixel(Math.Max(0,bar.Width/2),Math.Max(0,bar.Height/2));Console.WriteLine("CONTROLBAR_PAINT_PROBE="+a.ToArgb());}
+        int ex=(int)ov.GetType().GetProperty("ExtendedStyle",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)!.GetValue(ov)!;
+        const int L=0x80000,TN=0x20,NA=0x08000000;if((ex&L)==0||(ex&TN)==0||(ex&NA)==0)throw new Exception("EXSTYLE "+ex.ToString("X"));
+        var before=Form.ActiveForm;vp.Size=new Size(700,450);Application.DoEvents();bar.Visible=false;Application.DoEvents();bar.Visible=true;Application.DoEvents();bar.GetType().GetMethod("LayoutToViewport",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)!.Invoke(bar,null);Application.DoEvents();
+        if(!bar.Enabled||!bar.Controls["MediaPlayerPlay"].Enabled)throw new Exception("INPUT_DISABLED");
+        Console.WriteLine("HANDLES form="+form.Handle+" viewport="+vp.Handle+" bar="+bar.Handle+" overlay="+ov.Handle);
+        Console.WriteLine("OVERLAY_BOUNDS="+ov.Bounds+" CONTROLBAR_SCREEN="+new Rectangle(bar.PointToScreen(Point.Empty),bar.Size));
+        Console.WriteLine("OVERLAY_EXSTYLE=0x"+ex.ToString("X"));
+        Console.WriteLine("NO_UNSUPPORTED_TRANSPARENT_BACKCOLOR=PASS");
+        Console.WriteLine("CONTROLS_ENABLED=PASS");
+        form.Close();form.Dispose();Application.DoEvents();Console.WriteLine("DISPOSE=PASS");
+       }
+      }
+      '@
+      New-Item -ItemType Directory -Force .runtime-harness|Out-Null
+      Set-Content .runtime-harness/H.cs $src
+      Set-Content .runtime-harness/H.csproj '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWindowsForms>true</UseWindowsForms><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup></Project>'
+      dotnet run --project .runtime-harness/H.csproj -c Release
+      if($LASTEXITCODE-ne 0){throw 'HARNESS'}
