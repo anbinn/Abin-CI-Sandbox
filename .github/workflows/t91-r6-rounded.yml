@@ -1,0 +1,96 @@
+name: T91 R6 Rounded Player Validation
+on:
+ push:
+  branches: [ v16-t91-r6-rounded-validation ]
+  paths: [ '.github/workflows/t91-r6-rounded.yml' ]
+permissions: { contents: read }
+jobs:
+ validate:
+  runs-on: windows-latest
+  steps:
+   - uses: actions/checkout@v4
+     with:
+      repository: anbinn/Abin
+      ref: 654c94f24b519938bf6af27da4c882128516a647
+      token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+      persist-credentials: false
+   - uses: actions/setup-dotnet@v4
+     with: { dotnet-version: '10.0.x' }
+   - name: Exact product SHA
+     shell: pwsh
+     run: |
+      $actual=(git rev-parse HEAD).Trim()
+      Write-Host "PRODUCT_SOURCE_SHA=$actual"
+      if($actual -ne '654c94f24b519938bf6af27da4c882128516a647'){throw "SOURCE_SHA_MISMATCH $actual"}
+      Write-Host "PRODUCT_SOURCE_SHA_MATCH=PASS"
+   - run: dotnet restore VideoDownloader.csproj
+   - name: Release build clean
+     shell: pwsh
+     run: |
+      $o=dotnet build VideoDownloader.csproj -c Release --no-restore 2>&1
+      $o|%{Write-Host $_}
+      if($LASTEXITCODE-ne 0){throw 'BUILD'}
+      $s=$o-join "`n"
+      if($s-notmatch '0 Warning\(s\)' -or $s-notmatch '0 Error\(s\)'){throw 'CLEAN'}
+   - name: Runtime rounded player harness
+     shell: pwsh
+     run: |
+      $src=@'
+      using System;using System.Drawing;using System.Reflection;using System.Windows.Forms;
+      class H{[STAThread]static void Main(){
+       var product=System.IO.Path.GetFullPath("bin/Release/net10.0-windows/阿斌视频下载器.dll");
+       Console.WriteLine("PRODUCT_ASSEMBLY="+product);
+       if(!System.IO.File.Exists(product))throw new Exception("PRODUCT_ASSEMBLY_MISSING");
+       Console.WriteLine("PRODUCT_ASSEMBLY_EXISTS=PASS");
+       var asm=Assembly.LoadFrom(product);
+       Type T(string n)=>asm.GetType("VideoDownloader.UI.Controls."+n,true)!;
+       object New(Type t)=>Activator.CreateInstance(t,BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic,null,null,null)!;
+       object NewIcon(string icon){var et=T("MediaVectorIcon");var ev=Enum.Parse(et,icon);return Activator.CreateInstance(T("MediaIconButton"),BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic,null,new object[]{ev},null)!;}
+       var form=new Form(){Size=new Size(900,600)};
+       var vp=(Control)New(T("MediaPlayerViewport"));vp.Dock=DockStyle.Fill;form.Controls.Add(vp);
+       var bar=(Control)New(T("MediaPlayerControlBar"));vp.Controls.Add(bar);
+       Control Add(string type,string name,string? icon=null){var c=(Control)(type=="MediaIconButton"?NewIcon(icon!):New(T(type)));c.Name=name;bar.Controls.Add(c);return c;}
+       Add("MediaIconButton","MediaPlayerPlay","Pause");
+       Add("V14SeekProgress","MediaPlayerSeek");
+       bar.Controls.Add(new Label(){Name="MediaPlayerTime",Text="00:00 / 00:00"});
+       Add("MediaIconButton","MediaPlayerVolume","Volume");
+       Add("MediaIconButton","MediaPlayerFullscreen","Fullscreen");
+       form.Show();Application.DoEvents();
+       bar.GetType().GetMethod("LayoutToViewport",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)!.Invoke(bar,null);
+       Application.DoEvents();
+       if(form.Handle==IntPtr.Zero||vp.Handle==IntPtr.Zero||bar.Handle==IntPtr.Zero)throw new Exception("HANDLE_ZERO");
+       if(bar.Region is null)throw new Exception("REGION_MISSING");
+       if(!bar.Region.IsVisible(bar.Width/2,bar.Height/2))throw new Exception("REGION_CENTER_MISSING");
+       if(bar.Region.IsVisible(0,0))throw new Exception("CORNER_NOT_CLIPPED");
+       var expected=Color.FromArgb(41,45,54);
+       if(bar.BackColor.ToArgb()!=expected.ToArgb())throw new Exception("SURFACE_COLOR "+bar.BackColor);
+       using(var bmp=new Bitmap(64,64)){using var g=Graphics.FromImage(bmp);g.Clear(Color.Magenta);using var pe=new PaintEventArgs(g,new Rectangle(0,0,64,64));bar.GetType().GetMethod("OnPaintBackground",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(bar,new object[]{pe});if(bmp.GetPixel(32,32).ToArgb()!=expected.ToArgb())throw new Exception("BACKGROUND_PAINT_MISMATCH");}
+       if(bar.GetType().GetField("_overlay",BindingFlags.Instance|BindingFlags.NonPublic)!=null)throw new Exception("OVERLAY_STILL_PRESENT");
+       vp.Size=new Size(700,450);Application.DoEvents();bar.Visible=false;Application.DoEvents();bar.Visible=true;Application.DoEvents();
+       bar.GetType().GetMethod("LayoutToViewport",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)!.Invoke(bar,null);Application.DoEvents();
+       if(!bar.Enabled||!bar.Controls["MediaPlayerPlay"].Enabled)throw new Exception("INPUT_DISABLED");
+       var renderHandle=(IntPtr)vp.GetType().GetProperty("RenderWindowHandle",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)!.GetValue(vp)!;
+       if(renderHandle==IntPtr.Zero)throw new Exception("RENDER_HANDLE_ZERO");
+       var bt=asm.GetType("VideoDownloader.Modules.MediaDiscovery.LibMpvPlaybackBackend",true)!;
+       var backend=Activator.CreateInstance(bt,BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic,null,null,null)!;
+       bt.GetMethod("Initialize",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)!.Invoke(backend,new object[]{renderHandle});
+       var ready=(bool)bt.GetProperty("IsReady",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)!.GetValue(backend)!;
+       if(!ready)throw new Exception("LIBMPV_NOT_READY");
+       Console.WriteLine("LIBMPV_INITIALIZE=PASS");((IDisposable)backend).Dispose();
+       Console.WriteLine("HANDLES_NONZERO=PASS");
+       Console.WriteLine("ROUNDED_REGION=PASS");
+       Console.WriteLine("SURFACE_COLOR=#292D36");
+       Console.WriteLine("OPAQUE_BACKGROUND_PAINT=PASS");
+       Console.WriteLine("NO_LAYERED_OVERLAY=PASS");
+       Console.WriteLine("NO_UNSUPPORTED_TRANSPARENT_BACKCOLOR=PASS");
+       Console.WriteLine("CONTROLS_ENABLED=PASS");
+       form.Close();form.Dispose();Application.DoEvents();Console.WriteLine("DISPOSE=PASS");
+      }}
+      '@
+      New-Item -ItemType Directory -Force .runtime-harness|Out-Null
+      Set-Content .runtime-harness/H.cs $src
+      Set-Content .runtime-harness/H.csproj '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWindowsForms>true</UseWindowsForms><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup></Project>'
+      $productDir=(Resolve-Path 'bin/Release/net10.0-windows').Path
+      $env:PATH="$productDir;$env:PATH"
+      dotnet run --project .runtime-harness/H.csproj -c Release
+      if($LASTEXITCODE-ne 0){throw 'HARNESS'}
