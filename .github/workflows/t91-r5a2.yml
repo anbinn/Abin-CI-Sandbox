@@ -27,7 +27,7 @@ jobs:
       $src=@'
       using System;using System.Drawing;using System.Reflection;using System.Windows.Forms;
       class H{[STAThread]static void Main(){
-       var asm=Assembly.LoadFrom(System.IO.Path.GetFullPath("bin/Release/net10.0-windows/VideoDownloader.dll"));Type T(string n)=>asm.GetType("VideoDownloader.UI.Controls."+n,true)!;
+       var product=System.IO.Path.GetFullPath("bin/Release/net10.0-windows/阿斌视频下载器.dll");Console.WriteLine("PRODUCT_ASSEMBLY="+product);if(!System.IO.File.Exists(product))throw new Exception("PRODUCT_ASSEMBLY_MISSING");Console.WriteLine("PRODUCT_ASSEMBLY_EXISTS=PASS");var asm=Assembly.LoadFrom(product);Type T(string n)=>asm.GetType("VideoDownloader.UI.Controls."+n,true)!;
        object New(Type t)=>Activator.CreateInstance(t,BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic,null,null,null)!;
        var form=new Form(){Size=new Size(900,600)};var vp=(Control)New(T("MediaPlayerViewport"));vp.Dock=DockStyle.Fill;form.Controls.Add(vp);var bar=(Control)New(T("MediaPlayerControlBar"));vp.Controls.Add(bar);
        Control Add(string type,string name){var c=(Control)New(T(type));c.Name=name;bar.Controls.Add(c);return c;}
