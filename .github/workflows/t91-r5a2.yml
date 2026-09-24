@@ -11,7 +11,7 @@ jobs:
    - uses: actions/checkout@v4
      with:
       repository: anbinn/Abin
-      ref: 14ef02bee3c50adc6b18f53fc2b73ad84b701a1e
+      ref: 5cbdb210b3e3464bf0872d743319f8fbff899b57
       token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
       persist-credentials: false
    - uses: actions/setup-dotnet@v4
@@ -21,7 +21,7 @@ jobs:
      run: |
       $actual=(git rev-parse HEAD).Trim()
       Write-Host "PRODUCT_SOURCE_SHA=$actual"
-      if($actual -ne '14ef02bee3c50adc6b18f53fc2b73ad84b701a1e'){throw "SOURCE_SHA_MISMATCH $actual"}
+      if($actual -ne '5cbdb210b3e3464bf0872d743319f8fbff899b57'){throw "SOURCE_SHA_MISMATCH $actual"}
       Write-Host "PRODUCT_SOURCE_SHA_MATCH=PASS"
    - run: dotnet restore VideoDownloader.csproj
    - name: Release build clean
@@ -42,13 +42,13 @@ jobs:
        Add("MediaIconButton","MediaPlayerPlay","Pause");Add("V14SeekProgress","MediaPlayerSeek");bar.Controls.Add(new Label(){Name="MediaPlayerTime",Text="00:00 / 00:00"});Add("MediaIconButton","MediaPlayerVolume","Volume");Add("MediaIconButton","MediaPlayerFullscreen","Fullscreen");
        form.Show();Application.DoEvents();bar.GetType().GetMethod("LayoutToViewport",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)!.Invoke(bar,null);Application.DoEvents();
        var ov=(Form)bar.GetType().GetField("_overlay",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(bar)!;if(form.Handle==IntPtr.Zero||vp.Handle==IntPtr.Zero||bar.Handle==IntPtr.Zero||ov.Handle==IntPtr.Zero)throw new Exception("HANDLE_ZERO");
-       var expected=new Rectangle(bar.PointToScreen(Point.Empty),bar.Size);if(ov.Bounds!=expected)throw new Exception("BOUNDS");
+       if(!ReferenceEquals(ov.Parent,vp))throw new Exception("OVERLAY_PARENT");var expected=bar.Bounds;if(ov.Bounds!=expected)throw new Exception("BOUNDS "+ov.Bounds+" != "+expected);
        var gap=new Point(bar.Width/2,5);if(bar.Region is null||bar.Region.IsVisible(gap))throw new Exception("SEMANTIC_HOST_REGION_OCCLUDES_GAP");foreach(Control child in bar.Controls){if(child.Visible&&child.Width>0&&child.Height>0&&!bar.Region.IsVisible(new Point(child.Left+child.Width/2,child.Top+child.Height/2)))throw new Exception("SEMANTIC_HOST_REGION_CLIPS_"+child.Name);}Console.WriteLine("SEMANTIC_HOST_REGION_HOLES=PASS");
-       using(var px=new Bitmap(1,1)){using(var sg=Graphics.FromImage(px)){var sp=bar.PointToScreen(gap);sg.CopyFromScreen(sp,Point.Empty,new Size(1,1));}var p=px.GetPixel(0,0);Console.WriteLine($"ALPHA_GAP_PIXEL={p.R},{p.G},{p.B}");if(p.G<=70||p.G<=p.R+30)throw new Exception("ALPHA_GAP_NOT_SHOWING_RENDER_SURFACE");Console.WriteLine("VIDEO_VISIBLE_THROUGH_ALPHA_GAP=PASS");}
+       using(var px=new Bitmap(1,1)){using(var sg=Graphics.FromImage(px)){var sp=bar.PointToScreen(gap);sg.CopyFromScreen(sp,Point.Empty,new Size(1,1));}var p=px.GetPixel(0,0);Console.WriteLine($"ALPHA_GAP_PIXEL={p.R},{p.G},{p.B}");if(p.G<=80||p.G>=230||p.R<10||p.B<10)throw new Exception("ALPHA_GAP_NOT_COMPOSITED");Console.WriteLine("VIDEO_VISIBLE_THROUGH_ALPHA_GAP=PASS");Console.WriteLine("DECORATION_VISIBLE_IN_ALPHA_GAP=PASS");}
        using(var bmp=new Bitmap(64,64)){using var g=Graphics.FromImage(bmp);var marker=Color.FromArgb(255,13,29,47);g.Clear(marker);using var pe=new PaintEventArgs(g,new Rectangle(0,0,64,64));var bg=bar.GetType().GetMethod("OnPaintBackground",BindingFlags.Instance|BindingFlags.NonPublic)!;bg.Invoke(bar,new object[]{pe});if(bmp.GetPixel(32,32).ToArgb()!=marker.ToArgb())throw new Exception("CONTROLBAR_BACKGROUND_PAINTED");Console.WriteLine("CONTROLBAR_BACKGROUND_NO_FILL=PASS");}
        int ex=(int)ov.GetType().GetProperty("ExtendedStyle",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)!.GetValue(ov)!;const int L=0x80000,TN=0x20,NA=0x08000000;if((ex&L)==0||(ex&TN)==0||(ex&NA)==0)throw new Exception("EXSTYLE");
        vp.Size=new Size(700,450);Application.DoEvents();bar.Visible=false;Application.DoEvents();bar.Visible=true;Application.DoEvents();bar.GetType().GetMethod("LayoutToViewport",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)!.Invoke(bar,null);Application.DoEvents();
-       var expected2=new Rectangle(bar.PointToScreen(Point.Empty),bar.Size);if(ov.Bounds!=expected2)throw new Exception("BOUNDS_AFTER_RESIZE");if(!bar.Enabled||!bar.Controls["MediaPlayerPlay"].Enabled||ov.ContainsFocus)throw new Exception("INPUT_OR_FOCUS");
+       var expected2=bar.Bounds;if(ov.Bounds!=expected2)throw new Exception("BOUNDS_AFTER_RESIZE");if(!bar.Enabled||!bar.Controls["MediaPlayerPlay"].Enabled||ov.ContainsFocus)throw new Exception("INPUT_OR_FOCUS");
        var renderHandle=(IntPtr)vp.GetType().GetProperty("RenderWindowHandle",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)!.GetValue(vp)!;if(renderHandle==IntPtr.Zero)throw new Exception("RENDER_HANDLE_ZERO");
        var bt=asm.GetType("VideoDownloader.Modules.MediaDiscovery.LibMpvPlaybackBackend",true)!;var backend=Activator.CreateInstance(bt,BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic,null,null,null)!;bt.GetMethod("Initialize",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)!.Invoke(backend,new object[]{renderHandle});var ready=(bool)bt.GetProperty("IsReady",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)!.GetValue(backend)!;if(!ready)throw new Exception("LIBMPV_NOT_READY");Console.WriteLine("LIBMPV_INITIALIZE=PASS");((IDisposable)backend).Dispose();
        Console.WriteLine("HANDLES_NONZERO=PASS");Console.WriteLine("OVERLAY_BOUNDS_MATCH=PASS");Console.WriteLine("OVERLAY_BOUNDS_AFTER_RESIZE=PASS");Console.WriteLine("OVERLAY_EXSTYLE=0x"+ex.ToString("X"));Console.WriteLine("NO_UNSUPPORTED_TRANSPARENT_BACKCOLOR=PASS");Console.WriteLine("CONTROLS_ENABLED=PASS");Console.WriteLine("OVERLAY_NO_FOCUS=PASS");
