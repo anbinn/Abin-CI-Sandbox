@@ -1,0 +1,41 @@
+name: T91 R4 Bottom Surface Only
+on:
+  push:
+    branches: [ v16-t91-r4-validation ]
+    paths: [ '.github/workflows/t91-r4.yml' ]
+permissions: { contents: read }
+jobs:
+ validate:
+  runs-on: windows-latest
+  steps:
+   - uses: actions/checkout@v4
+     with:
+      repository: anbinn/Abin
+      ref: 3dc21f5ca0e69c2fb5ba9932210cd57adb2c3b15
+      token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+      persist-credentials: false
+   - name: R4 owner and freeze gates
+     shell: pwsh
+     run: |
+      if((git rev-parse HEAD).Trim() -ne '3dc21f5ca0e69c2fb5ba9932210cd57adb2c3b15'){throw 'SHA'}
+      $d=git diff --name-only 73b2de233af6b929ef80c830cdc119ed0830e450 HEAD
+      if(($d|Measure-Object).Count-ne 1 -or $d[0]-ne 'Modules/MediaDiscovery/UI/MediaPlayerViewport.cs'){throw 'SCOPE'}
+      $p=Get-Content Modules/MediaDiscovery/UI/MediaPlayerViewport.cs -Raw
+      foreach($bad in @('BackColor=Color.Transparent','HostSurfaceColor=Color.Transparent','child.BackColor=Color.Transparent','BackColor=ControlSurfaceColor','e.Graphics.Clear(ControlSurfaceColor)')){if($p.Contains($bad)){throw "OPAQUE/TRANSPARENT HOST $bad"}}
+      foreach($t in @('PlayerAlphaOverlayWindow','WS_EX_LAYERED','UpdateLayeredWindow','Format32bppPArgb','AC_SRC_ALPHA','DecorationColor')){if(-not $p.Contains($t)){throw "DECORATION $t"}}
+      $base=git show 73b2de233af6b929ef80c830cdc119ed0830e450:Modules/MediaDiscovery/UI/MediaPlayerViewport.cs
+      foreach($t in @('play.SetBounds(Px(12),y,icon,icon)','seek.SetBounds(seekLeft,Px(23)','volume.SetBounds(full.Left-gap-icon','full.SetBounds(Width-Px(12)-icon','ResetInactivity()','BeginFade()','AdvanceFade()')){if(-not $p.Contains($t) -or -not ($base -join "`n").Contains($t)){throw "CONTROL FREEZE $t"}}
+      Write-Host 'PLAYER_SINGLE_BOTTOM_SURFACE=PASS'
+      Write-Host 'PLAYER_NO_WINFORMS_TRANSPARENT_BACKCOLOR=PASS'
+      Write-Host 'PLAYER_CONTROLS_BEHAVIOR_FREEZE=PASS'
+      Write-Host 'WINDOWS_VISUAL_PASS_NOT_CLAIMED=TRUE'
+   - uses: actions/setup-dotnet@v4
+     with: { dotnet-version: '10.0.x' }
+   - run: dotnet restore VideoDownloader.csproj
+   - name: Release build clean
+     shell: pwsh
+     run: |
+      $o=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1
+      $o|%{Write-Host $_}
+      if($LASTEXITCODE-ne 0){throw 'BUILD'}
+      $s=$o-join "`n";if($s-notmatch '0 Warning\(s\)' -or $s-notmatch '0 Error\(s\)'){throw 'CLEAN'}
