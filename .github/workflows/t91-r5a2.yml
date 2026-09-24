@@ -12,7 +12,7 @@ jobs:
    - uses: actions/checkout@v4
      with:
       repository: anbinn/Abin
-      ref: 8866587a4aa98ab8df746c30014c6117752cc74d
+      ref: 92f9cf6f578be4012749bf8131883ab84d8e1965
       token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
       persist-credentials: false
    - uses: actions/setup-dotnet@v4
@@ -22,7 +22,7 @@ jobs:
      run: |
       $actual=(git rev-parse HEAD).Trim()
       Write-Host "PRODUCT_SOURCE_SHA=$actual"
-      if($actual -ne '8866587a4aa98ab8df746c30014c6117752cc74d'){throw "SOURCE_SHA_MISMATCH $actual"}
+      if($actual -ne '92f9cf6f578be4012749bf8131883ab84d8e1965'){throw "SOURCE_SHA_MISMATCH $actual"}
       Write-Host "PRODUCT_SOURCE_SHA_MATCH=PASS"
    - run: dotnet restore VideoDownloader.csproj
    - name: Release build clean
