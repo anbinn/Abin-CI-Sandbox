@@ -1,7 +1,7 @@
-name: T91 R6 Rounded Clip Validation
+name: T91 R6 Square ControlBar Validation
 on:
  push:
-  branches: [ v16-t91-r6-bar-clip-validation ]
+  branches: [ v16-t91-r6-square-controlbar-validation ]
   paths: [ '.github/workflows/t91-r6-rounded.yml' ]
 permissions: { contents: read }
 jobs:
@@ -11,7 +11,7 @@ jobs:
    - uses: actions/checkout@v4
      with:
       repository: anbinn/Abin
-      ref: b49134a1ae44a7d3fe361269cf7a41dc733c17f8
+      ref: ec7e288234f4efc3d00bc19eeb69ecb3f7dbc40f
       token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
       persist-credentials: false
    - uses: actions/setup-dotnet@v4
@@ -21,7 +21,7 @@ jobs:
      run: |
       $actual=(git rev-parse HEAD).Trim()
       Write-Host "PRODUCT_SOURCE_SHA=$actual"
-      if($actual -ne 'b49134a1ae44a7d3fe361269cf7a41dc733c17f8'){throw "SOURCE_SHA_MISMATCH $actual"}
+      if($actual -ne 'ec7e288234f4efc3d00bc19eeb69ecb3f7dbc40f'){throw "SOURCE_SHA_MISMATCH $actual"}
       Write-Host "PRODUCT_SOURCE_SHA_MATCH=PASS"
    - run: dotnet restore VideoDownloader.csproj
    - name: Release build clean
@@ -46,7 +46,17 @@ jobs:
       if($block -match 'await\s+_mediaController.*DetailAsync'){throw 'DETAIL_CLICK_STILL_BLOCKING'}
       Write-Host 'DETAIL_NAVIGATION_FIRST=PASS'
       Write-Host 'DETAIL_BACKGROUND_RESOLVE=PASS'
-   - name: Runtime player AA harness
+   - name: Square control bar source gate
+     shell: pwsh
+     run: |
+      $s=Get-Content 'Modules/MediaDiscovery/UI/MediaPlayerViewport.cs' -Raw
+      $start=$s.IndexOf('internal sealed class MediaPlayerControlBar')
+      if($start-lt 0){throw 'CONTROL_BAR_MISSING'}
+      $bar=$s.Substring($start)
+      foreach($token in @('CreateSurfacePath','CreateWindowClipPath','UpdateWindowClip','ControlContourColor','Region=new Region','Px(14)')){if($bar.Contains($token)){throw "STALE_ROUNDED_CONTROLBAR_TOKEN $token"}}
+      if($bar-notmatch 'ControlSurfaceColor=Color.FromArgb\(41,45,54\)'){throw 'CONTROL_SURFACE_COLOR_CHANGED'}
+      Write-Host 'SQUARE_CONTROLBAR_SOURCE=PASS'
+   - name: Runtime player square-bar harness
      shell: pwsh
      run: |
       $src=@'
@@ -71,9 +81,7 @@ jobs:
        bar.GetType().GetMethod("LayoutToViewport",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)!.Invoke(bar,null);
        Application.DoEvents();
        if(form.Handle==IntPtr.Zero||vp.Handle==IntPtr.Zero||bar.Handle==IntPtr.Zero)throw new Exception("HANDLE_ZERO");
-       if(bar.Region is null)throw new Exception("BAR_REGION_MISSING");
-       if(!bar.Region.IsVisible(bar.Width/2,bar.Height/2))throw new Exception("BAR_REGION_CENTER_MISSING");
-       if(bar.Region.IsVisible(0,0))throw new Exception("BAR_RECTANGLE_NOT_CLIPPED");
+       if(bar.Region is not null)throw new Exception("BAR_REGION_SHOULD_BE_NULL");
        if(play.Region is not null)throw new Exception("BINARY_ICON_REGION_PRESENT");
        var expected=Color.FromArgb(41,45,54);
        if(bar.BackColor.ToArgb()!=expected.ToArgb())throw new Exception("SURFACE_COLOR");
@@ -99,9 +107,9 @@ jobs:
        bt.GetMethod("Initialize",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)!.Invoke(backend,new object[]{renderHandle});
        if(!(bool)bt.GetProperty("IsReady",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)!.GetValue(backend)!)throw new Exception("LIBMPV_NOT_READY");
        ((IDisposable)backend).Dispose();
-       Console.WriteLine("ROUNDED_BAR_WINDOW_CLIP=PASS");
+       Console.WriteLine("SQUARE_BAR_NO_REGION=PASS");
        Console.WriteLine("NO_BINARY_ICON_REGION=PASS");
-       Console.WriteLine("AA_BAR_SURFACE_PAINT=PASS");
+       Console.WriteLine("SQUARE_BAR_SURFACE_PAINT=PASS");
        Console.WriteLine("AA_ICON_PAINT=PASS");
        Console.WriteLine("LIBMPV_INITIALIZE=PASS");
        form.Close();form.Dispose();Application.DoEvents();Console.WriteLine("DISPOSE=PASS");
