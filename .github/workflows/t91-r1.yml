@@ -1,0 +1,46 @@
+name: T91 R1 Visual Correction
+on:
+  push:
+    branches: [ v16-t91-r1-validation ]
+    paths: [ '.github/workflows/t91-r1.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: c76b3a78c15cbc3c6606d2bdfc99787d723fec39
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Prove scoped correction and freezes
+        shell: pwsh
+        run: |
+          if((git rev-parse HEAD).Trim() -ne 'c76b3a78c15cbc3c6606d2bdfc99787d723fec39'){throw 'SHA'}
+          [string[]]$changed=@(git diff --name-only fa7678b044ac0d280bff9f8b7e0e5a770dda8398 HEAD)
+          if($changed.Count-ne 1 -or $changed[0]-ne 'UI/Controls/V14ComboBox.cs'){throw "SCOPE $($changed -join ',')"}
+          $d=Get-Content UI/Controls/V14ComboBox.cs -Raw
+          if(-not $d.Contains('new Rectangle(ScalePopup(12),r.Top')){throw 'ROW TEXT INSET'}
+          foreach($t in @('ContextMenuStrip','ToolStripMenuItem','ShowCheckMargin')){if($d.Contains($t)){throw "NATIVE GUTTER $t"}}
+          $m=Get-Content UI/V14DesignForm.MediaDiscovery.cs -Raw
+          if(-not $m.Contains('CreateMediaFixedBackRow()')){throw 'PHASE2A BACK FREEZE'}
+          if(-not $m.Contains('Discover movies, series, anime and more')){throw 'MEDIA BRAND FREEZE'}
+          Write-Host 'DROPDOWN_TEXT_INSET_OWNER=PASS'
+          Write-Host 'NO_NATIVE_GUTTER=PASS'
+          Write-Host 'PHASE2A_FREEZE=PASS'
+          Write-Host 'PLAYER_TRANSLUCENCY=STOPPED_BY_NATIVE_CHILD_HWND_COMPOSITING'
+          Write-Host 'WINDOWS_VISUAL_PASS_NOT_CLAIMED=TRUE'
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Restore
+        run: dotnet restore VideoDownloader.csproj
+      - name: Release build clean
+        shell: pwsh
+        run: |
+          $o=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1
+          $o|%{Write-Host $_}
+          if($LASTEXITCODE-ne 0){throw 'BUILD'}
+          $s=$o-join "`n"
+          if($s-notmatch '0 Warning\(s\)' -or $s-notmatch '0 Error\(s\)'){throw 'CLEAN'}
