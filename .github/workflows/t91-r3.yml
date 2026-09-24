@@ -1,0 +1,50 @@
+name: T91 R3 Alpha HWND Compat
+on:
+  push:
+    branches: [ v16-t91-r3-validation ]
+    paths: [ '.github/workflows/t91-r3.yml' ]
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: anbinn/Abin
+          ref: 73b2de233af6b929ef80c830cdc119ed0830e450
+          token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+          persist-credentials: false
+          fetch-depth: 0
+      - name: R3 source gates
+        shell: pwsh
+        run: |
+          if((git rev-parse HEAD).Trim() -ne '73b2de233af6b929ef80c830cdc119ed0830e450'){throw 'SHA'}
+          $p=Get-Content Modules/MediaDiscovery/UI/MediaPlayerViewport.cs -Raw
+          foreach($bad in @('BackColor=Color.Transparent','HostSurfaceColor=Color.Transparent','child.BackColor=Color.Transparent','SupportsTransparentBackColor,true','_overlay.SendToBack()')){if($p.Contains($bad)){throw "TRANSPARENT/ZORDER REGRESSION $bad"}}
+          foreach($t in @('PlayerAlphaOverlayWindow','WS_EX_LAYERED','UpdateLayeredWindow','Format32bppPArgb','AC_SRC_ALPHA','SetWindowPos','PlaceAboveVideo')){if(-not $p.Contains($t)){throw "ALPHA/ZORDER $t"}}
+          $s=Get-Content UI/MediaSourceSettingsDialog.cs -Raw
+          if(-not $s.Contains('SecondaryAction(ActionIconKind.None,cancelText') -or -not $s.Contains('PrimaryAction(ActionIconKind.None,saveText')){throw 'SOURCE BUTTON ICON'}
+          $btn=Get-Content UI/Controls/LineActionButton.cs -Raw
+          if(-not $btn.Contains('ActionIconKind { None,') -or -not $btn.Contains('bool hasIcon = IconKind != ActionIconKind.None')){throw 'TEXT ONLY BUTTON'}
+          $m=Get-Content UI/V14DesignForm.MediaDiscovery.cs -Raw
+          foreach($t in @('backend.Initialize(surface.RenderWindowHandle)','backend.Load(item.FinalUrl)','backend.TogglePause()','backend.ToggleMute()','backend.Seek(')){if(-not $m.Contains($t)){throw "PLAYBACK $t"}}
+          $combo=Get-Content UI/Controls/V14ComboBox.cs -Raw
+          if(-not $combo.Contains('new Rectangle(ScalePopup(12),r.Top')){throw 'DROPDOWN FREEZE'}
+          Write-Host 'PLAYER_TRUE_ALPHA_LAYERED_HWND=PASS'
+          Write-Host 'PLAYER_NO_WINFORMS_TRANSPARENT_SOURCE=PASS'
+          Write-Host 'PLAYER_ZORDER_SOURCE=PASS'
+          Write-Host 'PLAYBACK_FREEZE=PASS'
+          Write-Host 'SOURCE_SETTINGS_TEXT_ONLY=PASS'
+          Write-Host 'WINDOWS_VISUAL_PASS_NOT_CLAIMED=TRUE'
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Restore
+        run: dotnet restore VideoDownloader.csproj
+      - name: Release build clean
+        shell: pwsh
+        run: |
+          $o=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1
+          $o|%{Write-Host $_}
+          if($LASTEXITCODE-ne 0){throw 'BUILD'}
+          $s=$o-join "`n"
+          if($s-notmatch '0 Warning\(s\)' -or $s-notmatch '0 Error\(s\)'){throw 'CLEAN'}
