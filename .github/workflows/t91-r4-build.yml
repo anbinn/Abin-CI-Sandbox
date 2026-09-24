@@ -1,0 +1,32 @@
+name: T91 R4 Build
+on:
+ push:
+  branches: [ v16-t91-r4-build ]
+  paths: [ '.github/workflows/t91-r4-build.yml' ]
+permissions: { contents: read }
+jobs:
+ validate:
+  runs-on: windows-latest
+  steps:
+   - uses: actions/checkout@v4
+     with:
+      repository: anbinn/Abin
+      ref: 3dc21f5ca0e69c2fb5ba9932210cd57adb2c3b15
+      token: '${{ secrets.ABIN_PRIVATE_READ_TOKEN }}'
+      persist-credentials: false
+   - name: Exact SHA and owner gates
+     shell: pwsh
+     run: |
+      if((git rev-parse HEAD).Trim() -ne '3dc21f5ca0e69c2fb5ba9932210cd57adb2c3b15'){throw 'SHA'}
+      $p=Get-Content Modules/MediaDiscovery/UI/MediaPlayerViewport.cs -Raw
+      if($p.Contains('BackColor=Color.Transparent')){throw 'TRANSPARENT'}
+      if($p.Contains('BackColor=ControlSurfaceColor')){throw 'OPAQUE HOST'}
+      if(-not $p.Contains('PlayerAlphaOverlayWindow') -or -not $p.Contains('UpdateLayeredWindow')){throw 'DECORATION'}
+      Write-Host 'OWNER_GATES=PASS'
+   - uses: actions/setup-dotnet@v4
+     with: { dotnet-version: '10.0.x' }
+   - run: dotnet restore VideoDownloader.csproj
+   - name: Release build clean
+     shell: pwsh
+     run: |
+      $o=dotnet build VideoDownloader.csproj --configuration Release --no-restore 2>&1;$o|%{Write-Host $_};if($LASTEXITCODE-ne 0){throw 'BUILD'};$s=$o-join "`n";if($s-notmatch '0 Warning\(s\)' -or $s-notmatch '0 Error\(s\)'){throw 'CLEAN'}
